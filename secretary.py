@@ -335,10 +335,20 @@ async def handle_messages(event):
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
 
+def is_owner_private_workspace(event):
+    """Личные данные и запросы ИИ разрешены только в «Избранном» владельца."""
+    return (
+        event.out
+        and event.is_private
+        and event.sender_id == OWNER_ID
+        and event.chat_id == OWNER_ID
+    )
+
+
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ask(?:\s+|$)'))
 async def ask_ai_command(event):
     """Обращение к бесплатной локальной модели, только из аккаунта владельца."""
-    if event.sender_id != OWNER_ID:
+    if not is_owner_private_workspace(event):
         return
     question = event.raw_text[4:].strip()
     if not question:
@@ -347,7 +357,8 @@ async def ask_ai_command(event):
     async with ai_dialogue_lock:
         history = db.get_ai_history(OWNER_ID, limit=12)
         facts = [fact for _, fact in db.list_ai_facts(OWNER_ID)]
-        answer = await ask_local_ai(question, history, facts)
+        tone = db.get_setting("ai_tone", "warm")
+        answer = await ask_local_ai(question, history, facts, tone)
         if not answer.startswith("Локальная модель недоступна."):
             db.add_ai_exchange(OWNER_ID, question, answer)
         await event.reply(answer[:4000])
@@ -355,7 +366,7 @@ async def ask_ai_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.forget(?:\s|$)'))
 async def forget_ai_command(event):
-    if event.sender_id != OWNER_ID:
+    if not is_owner_private_workspace(event):
         return
     async with ai_dialogue_lock:
         removed = db.clear_ai_history(OWNER_ID)
@@ -364,7 +375,7 @@ async def forget_ai_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.memory(?:\s|$)'))
 async def ai_memory_command(event):
-    if event.sender_id != OWNER_ID:
+    if not is_owner_private_workspace(event):
         return
     count = len(db.get_ai_history(OWNER_ID, limit=100))
     await event.reply(f"🧠 В памяти есть последние {count} реплик (показываю максимум 30). Для удаления: .forget")
@@ -372,7 +383,7 @@ async def ai_memory_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.remember(?:\s|$)'))
 async def remember_fact_command(event):
-    if event.sender_id != OWNER_ID:
+    if not is_owner_private_workspace(event):
         return
     fact = event.raw_text[len(".remember"):].strip()
     try:
@@ -385,7 +396,7 @@ async def remember_fact_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.memories(?:\s|$)'))
 async def list_facts_command(event):
-    if event.sender_id != OWNER_ID:
+    if not is_owner_private_workspace(event):
         return
     facts = db.list_ai_facts(OWNER_ID)
     if not facts:
@@ -405,7 +416,7 @@ async def list_facts_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.forgetfact(?:\s|$)'))
 async def forget_fact_command(event):
-    if event.sender_id != OWNER_ID:
+    if not is_owner_private_workspace(event):
         return
     arg = event.raw_text[len(".forgetfact"):].strip()
     if not arg.isdecimal():
@@ -417,13 +428,29 @@ async def forget_fact_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.forgetallfacts(?:\s|$)'))
 async def forget_all_facts_command(event):
-    if event.sender_id != OWNER_ID:
+    if not is_owner_private_workspace(event):
         return
     if event.raw_text.strip() != ".forgetallfacts CONFIRM":
         await event.reply("Для удаления всех заметок напиши: .forgetallfacts CONFIRM")
         return
     removed = db.clear_ai_facts(OWNER_ID)
     await event.reply(f"🧹 Удалено заметок: {removed}")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.tone(?:\s|$)'))
+async def set_ai_tone_command(event):
+    if not is_owner_private_workspace(event):
+        return
+    from personality import PERSONAS
+    tone = event.raw_text[len(".tone"):].strip().lower()
+    if tone not in PERSONAS:
+        current = db.get_setting("ai_tone", "warm")
+        await event.reply(
+            f"Текущий характер: {current}. Выбери: .tone warm / concise / professional"
+        )
+        return
+    db.set_setting("ai_tone", tone)
+    await event.reply(f"✨ Стиль общения: {tone}")
 
 
 # === ЗАПУСК ===
