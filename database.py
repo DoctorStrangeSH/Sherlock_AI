@@ -83,12 +83,69 @@ class Database:
                 created_at TEXT NOT NULL
             )
         """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open'
+                    CHECK(status IN ('open', 'done')),
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            )
+        """)
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_tasks_owner_status "
+            "ON ai_tasks(owner_id, status, id)"
+        )
         self.cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_ai_dialogue_owner_id "
             "ON ai_dialogue(owner_id, id)"
         )
         self.conn.commit()
     
+    def add_ai_task(self, owner_id, title):
+        title = " ".join(title.split()).strip()
+        if not 1 <= len(title) <= 300:
+            raise ValueError("Текст задачи: от 1 до 300 символов")
+        with self.conn:
+            open_count = self.conn.execute(
+                "SELECT COUNT(*) FROM ai_tasks WHERE owner_id = ? AND status = 'open'",
+                (owner_id,)
+            ).fetchone()[0]
+            if open_count >= 200:
+                raise ValueError("Сначала заверши часть из 200 открытых задач")
+            cursor = self.conn.execute(
+                "INSERT INTO ai_tasks(owner_id, title, created_at) VALUES (?, ?, ?)",
+                (owner_id, title, datetime.now(MOSCOW_TZ).isoformat())
+            )
+        return cursor.lastrowid
+
+    def list_ai_tasks(self, owner_id, status='open', limit=100):
+        if status not in ('open', 'done'):
+            raise ValueError("Неизвестный статус")
+        return self.conn.execute(
+            "SELECT id, title FROM ai_tasks WHERE owner_id = ? AND status = ? "
+            "ORDER BY id ASC LIMIT ?", (owner_id, status, min(max(0, limit), 200))
+        ).fetchall()
+
+    def complete_ai_task(self, owner_id, task_id):
+        with self.conn:
+            cursor = self.conn.execute(
+                "UPDATE ai_tasks SET status = 'done', completed_at = ? "
+                "WHERE owner_id = ? AND id = ? AND status = 'open'",
+                (datetime.now(MOSCOW_TZ).isoformat(), owner_id, task_id)
+            )
+        return cursor.rowcount > 0
+
+    def delete_ai_task(self, owner_id, task_id):
+        with self.conn:
+            cursor = self.conn.execute(
+                "DELETE FROM ai_tasks WHERE owner_id = ? AND id = ?",
+                (owner_id, task_id)
+            )
+        return cursor.rowcount > 0
+
     def add_ai_fact(self, owner_id, fact):
         """Явно сохраняет заметку владельца, без автоматической добычи фактов."""
         fact = " ".join(fact.split()).strip()
