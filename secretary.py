@@ -14,6 +14,7 @@ from scheduler import Scheduler
 from local_ai import ask_local_ai
 from assistant_access import is_saved_messages_owner
 from reply_drafts import can_prepare_draft, draft_question, display_draft
+from draft_queue import DraftQueue
 
 # Логирование
 logging.basicConfig(
@@ -31,6 +32,7 @@ current_mode = db.get_setting("current_mode", "normal")
 FILTER_MODE = db.get_setting("filter_mode", FILTER_MODE)
 is_online = db.get_setting("is_online", False)
 ai_dialogue_lock = asyncio.Lock()
+pending_reply_drafts = DraftQueue()
 
 def get_time():
     return datetime.now(MOSCOW_TZ)
@@ -319,10 +321,24 @@ async def handle_messages(event):
         question = draft_question(event.raw_text, sender_name)
         tone = db.get_setting("ai_tone", "warm")
         suggestion = await ask_local_ai(question, tone=tone)
-        if not suggestion.startswith(("Локальная модель недоступна.", "Слишком длинный запрос")):
-            await client.send_message("me", display_draft(sender_name, suggestion))
+        if (not suggestion.startswith(("Локальная модель недоступна.", "Слишком длинный запрос"))
+                and db.get_setting("reply_drafts_enabled", False)
+                and sender_id in db.get_white_list()):
+            try:
+                draft = pending_reply_drafts.add(sender_id, sender_name, suggestion)
+            except ValueError:
+                logger.warning("Неподходящий черновик для отправки")
+            else:
+                preview = display_draft(sender_name, suggestion)
+                await client.send_message(
+                    "me",
+                    f"{preview}\n\n"
+                    f"✅ Отправить: .senddraft {draft.draft_id}\n"
+                    f"❌ Отменить: .canceldraft {draft.draft_id}\n"
+                    "Черновик действует 30 минут после создания.",
+                )
         else:
-            logger.warning("Не удалось подготовить черновик для разрешённого чата")
+            logger.warning("Черновик не создан: модель недоступна или доступ отключён")
         return
 
     # Фильтрация
@@ -365,11 +381,51 @@ async def toggle_reply_drafts(event):
         )
         return
     db.set_setting("reply_drafts_enabled", requested == "on")
+    if requested == "off":
+        pending_reply_drafts.clear()
     await event.reply(
         "✉️ Черновики включены для личных чатов из белого списка. "
-        "Результаты придут в Избранное, отправка только вручную."
+        "Результаты придут в Избранное, отправка только после команды .senddraft НОМЕР."
         if requested == "on" else "🛑 Черновики выключены."
     )
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.senddraft(?:\\s|$)'))
+async def send_reply_draft(event):
+    """One-time, owner-initiated send. Never runs from incoming chats."""
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".senddraft"):].strip()
+    if not value.isdecimal():
+        await event.reply("Формат: .senddraft НОМЕР (из последнего черновика)")
+        return
+    draft = pending_reply_drafts.take_for_send(
+        int(value),
+        enabled=db.get_setting("reply_drafts_enabled", False),
+        allowed_ids=set(db.get_white_list()),
+    )
+    if draft is None:
+        await event.reply("Черновик не найден, истёк, уже использован или контакт запрещён.")
+        return
+    try:
+        await client.send_message(draft.recipient_id, draft.reply)
+    except Exception:
+        logger.exception("Не удалось отправить подтверждённый черновик")
+        await event.reply("❌ Ошибка отправки. Черновик погашен во избежание дубля. Создай новый.")
+        return
+    await event.reply(f"✅ Отправлено контакту {draft.recipient_name} (черновик #{draft.draft_id}).")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.canceldraft(?:\\s|$)'))
+async def cancel_reply_draft(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".canceldraft"):].strip()
+    if not value.isdecimal():
+        await event.reply("Формат: .canceldraft НОМЕР")
+        return
+    removed = pending_reply_drafts.cancel(int(value))
+    await event.reply("🗑️ Черновик отменён." if removed else "Черновик не найден или истёк.")
 
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ask(?:\s+|$)'))
