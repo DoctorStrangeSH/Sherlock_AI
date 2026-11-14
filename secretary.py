@@ -385,7 +385,7 @@ async def handle_messages(event):
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.drafttone(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.drafttone(?:\s|$)'))
 async def set_contact_draft_style(event):
     """Set safe, per-contact reply style, only from owner's Saved Messages."""
     if not is_saved_messages_owner(event, OWNER_ID):
