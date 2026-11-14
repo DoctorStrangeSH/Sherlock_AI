@@ -335,7 +335,7 @@ async def handle_messages(event):
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.ask(?:\\s+|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.ask(?:\s+|$)'))
 async def ask_ai_command(event):
     """Обращение к бесплатной локальной модели, только из аккаунта владельца."""
     if event.sender_id != OWNER_ID:
@@ -353,7 +353,7 @@ async def ask_ai_command(event):
         await event.reply(answer[:4000])
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.forget(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.forget(?:\s|$)'))
 async def forget_ai_command(event):
     if event.sender_id != OWNER_ID:
         return
@@ -362,7 +362,7 @@ async def forget_ai_command(event):
     await event.reply(f"🧹 Удалила историю ИИ: {removed} сообщений. Статистика и входящие сообщения не затронуты.")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.memory(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.memory(?:\s|$)'))
 async def ai_memory_command(event):
     if event.sender_id != OWNER_ID:
         return
@@ -370,7 +370,7 @@ async def ai_memory_command(event):
     await event.reply(f"🧠 В памяти есть последние {count} реплик (показываю максимум 30). Для удаления: .forget")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.remember(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.remember(?:\s|$)'))
 async def remember_fact_command(event):
     if event.sender_id != OWNER_ID:
         return
@@ -383,7 +383,7 @@ async def remember_fact_command(event):
     await event.reply(f"🧠 Запомнила заметку #{fact_id}. Посмотреть: .memories")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.memories(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.memories(?:\s|$)'))
 async def list_facts_command(event):
     if event.sender_id != OWNER_ID:
         return
@@ -398,12 +398,12 @@ async def list_facts_command(event):
         if len(chunk) + len(line) + 1 > 3500:
             await event.reply(chunk)
             chunk = ""
-        chunk += line + "\\n"
+        chunk += line + "\n"
     if chunk:
         await event.reply(chunk)
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.forgetfact(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.forgetfact(?:\s|$)'))
 async def forget_fact_command(event):
     if event.sender_id != OWNER_ID:
         return
@@ -415,7 +415,7 @@ async def forget_fact_command(event):
     await event.reply("🧹 Заметка удалена." if removed else "Заметка не найдена.")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.forgetallfacts(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.forgetallfacts(?:\s|$)'))
 async def forget_all_facts_command(event):
     if event.sender_id != OWNER_ID:
         return
