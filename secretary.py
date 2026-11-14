@@ -390,6 +390,54 @@ async def toggle_reply_drafts(event):
     )
 
 
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.editdraft(?:\s|$)'))
+async def edit_reply_draft(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    arguments = event.raw_text[len('.editdraft'):].strip().split(None, 1)
+    if len(arguments) != 2 or not arguments[0].isdecimal():
+        await event.reply('Формат: .editdraft НОМЕР новый текст ответа')
+        return
+    try:
+        draft = pending_reply_drafts.edit(
+            int(arguments[0]), arguments[1],
+            enabled=db.get_setting('reply_drafts_enabled', False),
+            allowed_ids=set(db.get_white_list()),
+        )
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    if draft is None:
+        await event.reply('Черновик не найден, истёк или контакт больше не разрешён.')
+        return
+    await event.reply(
+        f'✏️ Черновик #{draft.draft_id} для {draft.recipient_name} обновлён.\n\n'
+        f'{draft.reply}\n\n'
+        f'✅ Отправить: .senddraft {draft.draft_id}\n'
+        f'❌ Отменить: .canceldraft {draft.draft_id}'
+    )
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.showdraft(?:\s|$)'))
+async def show_reply_draft(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len('.showdraft'):].strip()
+    if not value.isdecimal():
+        await event.reply('Формат: .showdraft НОМЕР')
+        return
+    draft = pending_reply_drafts.peek(int(value))
+    if not (draft and db.get_setting('reply_drafts_enabled', False)
+            and draft.recipient_id in db.get_white_list()):
+        await event.reply('Черновик не найден, истёк или контакт больше не разрешён.')
+        return
+    await event.reply(
+        f'👁️ Черновик #{draft.draft_id} для {draft.recipient_name}:\n\n'
+        f'{draft.reply}\n\n'
+        f'✅ Отправить: .senddraft {draft.draft_id}\n'
+        f'✏️ Изменить: .editdraft {draft.draft_id} НОВЫЙ ТЕКСТ'
+    )
+
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\\.senddraft(?:\\s|$)'))
 async def send_reply_draft(event):
     """One-time, owner-initiated send. Never runs from incoming chats."""
