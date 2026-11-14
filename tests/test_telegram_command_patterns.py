@@ -20,11 +20,12 @@ class TelegramCommandPatternTests(unittest.TestCase):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             for decorator in node.decorator_list:
-                if not isinstance(decorator, ast.Call):
-                    continue
-                for keyword in decorator.keywords:
-                    if keyword.arg == "pattern" and isinstance(keyword.value, ast.Constant):
-                        command_patterns.append(keyword.value.value)
+                for call in ast.walk(decorator):
+                    if not isinstance(call, ast.Call):
+                        continue
+                    for keyword in call.keywords:
+                        if keyword.arg == "pattern" and isinstance(keyword.value, ast.Constant):
+                            command_patterns.append(keyword.value.value)
         for name in COMMANDS:
             matching = [pattern for pattern in command_patterns
                         if re.match(pattern, "." + name + " 123")]
