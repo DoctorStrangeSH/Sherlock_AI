@@ -64,7 +64,7 @@ async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tas
     try:
         return await asyncio.to_thread(_request, question, history, facts, tone, tasks)
     except ValueError as exc:
-        return str(exc)
+        return "Локальная модель недоступна. " + str(exc)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return ("Локальная модель недоступна. Запусти Ollama и скачай модель: "
                 "`ollama pull qwen3:8b`. Проверь OLLAMA_URL и OLLAMA_MODEL.")
