@@ -33,5 +33,9 @@ class RecentChatContext:
         history = self._chats.get(contact_id, [])
         return list(history)
 
+    def forget(self, contact_id: int) -> None:
+        """Forget a revoked contact without disturbing other conversations."""
+        self._chats.pop(contact_id, None)
+
     def clear(self):
         self._chats.clear()
