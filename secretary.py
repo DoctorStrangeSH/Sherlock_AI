@@ -13,6 +13,7 @@ from security import security
 from scheduler import Scheduler
 from local_ai import ask_local_ai
 from assistant_access import is_saved_messages_owner
+from reply_drafts import can_prepare_draft, draft_question, display_draft
 
 # Логирование
 logging.basicConfig(
@@ -307,6 +308,23 @@ async def handle_messages(event):
     db.add_user(sender_id, sender_name)
     db.add_message(sender_id, event.text)
     
+    # Черновики включаются владельцем и только для контактов из белого списка.
+    # При активном режиме для этих контактов не отправляем старый автоответ.
+    if can_prepare_draft(
+        enabled=db.get_setting("reply_drafts_enabled", False),
+        private=event.is_private, outgoing=event.out,
+        sender_id=sender_id, owner_id=OWNER_ID,
+        allowed_ids=set(db.get_white_list()), text=event.raw_text,
+    ):
+        question = draft_question(event.raw_text, sender_name)
+        tone = db.get_setting("ai_tone", "warm")
+        suggestion = await ask_local_ai(question, tone=tone)
+        if not suggestion.startswith(("Локальная модель недоступна.", "Слишком длинный запрос")):
+            await client.send_message("me", display_draft(sender_name, suggestion))
+        else:
+            logger.warning("Не удалось подготовить черновик для разрешённого чата")
+        return
+
     # Фильтрация
     white_list = db.get_white_list()
     black_list = db.get_black_list()
@@ -334,6 +352,28 @@ async def handle_messages(event):
         await send_to_topic(TOPIC_INCOMING, f'📩 **Входящее**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.drafts(?:\\s|$)'))
+async def toggle_reply_drafts(event):
+    """Владелец включает предложения ответов в Telegram Избранном."""
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    requested = event.raw_text[len(".drafts"):].strip().lower()
+    if requested not in ("on", "off"):
+        state = "включены" if db.get_setting("reply_drafts_enabled", False) else "выключены"
+        await event.reply(
+            f"Черновики {state}. Команды: .drafts on / .drafts off. "
+            "Работает только для личных чатов из белого списка (.addwhite). "
+            "Предложения приходят в Избранное; собеседникам ничего не отправляется."
+        )
+        return
+    db.set_setting("reply_drafts_enabled", requested == "on")
+    await event.reply(
+        "✉️ Черновики включены для личных чатов из белого списка. "
+        "Результаты придут в Избранное, отправка только вручную."
+        if requested == "on" else "🛑 Черновики выключены."
+    )
+
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ask(?:\s+|$)'))
 async def ask_ai_command(event):
