@@ -2,14 +2,26 @@
 import asyncio
 import json
 import os
+from functools import lru_cache
 import urllib.error
 import urllib.request
 
 # Не импортируем Telegram-конфигурацию: локальный чат работает без неё.
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "auto")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 
 from personality import build_system_prompt
+from model_selection import choose_model
+
+@lru_cache(maxsize=1)
+def selected_model():
+    """Reads Ollama's locally installed models once per process."""
+    req = urllib.request.Request(OLLAMA_URL.rstrip("/") + "/api/tags", method="GET")
+    with urllib.request.urlopen(req, timeout=5) as response:
+        data = json.load(response)
+    names = [item.get("name", "") for item in data.get("models", [])]
+    return choose_model(names, OLLAMA_MODEL)
+
 
 def _request(question: str, history=None, facts=None, tone="warm", tasks=None) -> str:
     safe_history = [m for m in (history or [])[-12:] if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
@@ -26,7 +38,7 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None) -
         + "\n".join(f"- {task}" for task in open_tasks)
     ) if open_tasks else ""
     payload = json.dumps({
-        "model": OLLAMA_MODEL,
+        "model": selected_model(),
         "stream": False,
         "messages": [{"role": "system", "content": build_system_prompt(tone)}]
         + ([{"role": "system", "content": note_context}] if note_context else [])
@@ -51,6 +63,8 @@ async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tas
         return "Слишком длинный запрос (максимум 4000 символов)."
     try:
         return await asyncio.to_thread(_request, question, history, facts, tone, tasks)
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+    except ValueError as exc:
+        return str(exc)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return ("Локальная модель недоступна. Запусти Ollama и скачай модель: "
-                "`ollama pull qwen2.5:3b`. Проверь OLLAMA_URL и OLLAMA_MODEL.")
+                "`ollama pull qwen3:8b`. Проверь OLLAMA_URL и OLLAMA_MODEL.")
