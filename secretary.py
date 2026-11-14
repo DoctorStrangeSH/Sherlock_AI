@@ -340,8 +340,30 @@ async def ask_ai_command(event):
     if event.sender_id != OWNER_ID:
         return
     question = event.raw_text[4:].strip()
-    answer = await ask_local_ai(question)
+    if not question:
+        await event.reply("Напиши вопрос после .ask")
+        return
+    history = db.get_ai_history(OWNER_ID, limit=12)
+    answer = await ask_local_ai(question, history)
+    if not answer.startswith("Локальная модель недоступна."):
+        db.add_ai_exchange(OWNER_ID, question, answer)
     await event.reply(answer[:4000])
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.forget(?:\\s|$)'))
+async def forget_ai_command(event):
+    if event.sender_id != OWNER_ID:
+        return
+    removed = db.clear_ai_history(OWNER_ID)
+    await event.reply(f"🧹 Удалила историю ИИ: {removed} сообщений. Статистика и входящие сообщения не затронуты.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.memory(?:\\s|$)'))
+async def ai_memory_command(event):
+    if event.sender_id != OWNER_ID:
+        return
+    count = len(db.get_ai_history(OWNER_ID, limit=100))
+    await event.reply(f"🧠 В памяти есть последние {count} реплик (показываю максимум 30). Для удаления: .forget")
 
 
 # === ЗАПУСК ===
