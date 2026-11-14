@@ -42,7 +42,7 @@ class ChatFlowTests(unittest.IsolatedAsyncioTestCase):
 class OllamaPayloadTests(unittest.TestCase):
     def test_request_contains_context_without_telegram_secrets(self):
         captured = {}
-        response = io.BytesIO(b'{"message":{"content":"Все хорошо!"}}')
+        response = io.BytesIO('{"message":{"content":"Все хорошо!"}}'.encode("utf-8"))
         def open_request(request, timeout):
             captured["payload"] = json.loads(request.data.decode("utf-8"))
             captured["timeout"] = timeout
