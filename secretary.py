@@ -324,7 +324,6 @@ async def handle_messages(event):
     
     # Спам
     if category == "spam":
-        db.set_black(sender_id, True)
         logger.info(f"Спам от {sender_name}")
         return
     
