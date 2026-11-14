@@ -48,7 +48,7 @@ class OllamaPayloadTests(unittest.TestCase):
             captured["timeout"] = timeout
             return response
 
-        with patch.object(local_ai.urllib.request, "urlopen", side_effect=open_request):
+        with patch.object(local_ai.urllib.request, "urlopen", side_effect=open_request), patch.object(local_ai, "selected_model", return_value="qwen3:8b"):
             answer = local_ai._request(
                 "Что делать?",
                 [{"role": "user", "content": "Привет"}],
