@@ -12,6 +12,7 @@ from analytics import analytics
 from security import security
 from scheduler import Scheduler
 from local_ai import ask_local_ai
+from assistant_access import is_saved_messages_owner
 
 # Логирование
 logging.basicConfig(
@@ -334,20 +335,10 @@ async def handle_messages(event):
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
 
-def is_owner_private_workspace(event):
-    """Личные данные и запросы ИИ разрешены только в «Избранном» владельца."""
-    return (
-        event.out
-        and event.is_private
-        and event.sender_id == OWNER_ID
-        and event.chat_id == OWNER_ID
-    )
-
-
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.ask(?:\s+|$)'))
 async def ask_ai_command(event):
     """Обращение к бесплатной локальной модели, только из аккаунта владельца."""
-    if not is_owner_private_workspace(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
         return
     question = event.raw_text[4:].strip()
     if not question:
@@ -365,7 +356,7 @@ async def ask_ai_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.forget(?:\s|$)'))
 async def forget_ai_command(event):
-    if not is_owner_private_workspace(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
         return
     async with ai_dialogue_lock:
         removed = db.clear_ai_history(OWNER_ID)
@@ -374,7 +365,7 @@ async def forget_ai_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.memory(?:\s|$)'))
 async def ai_memory_command(event):
-    if not is_owner_private_workspace(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
         return
     count = len(db.get_ai_history(OWNER_ID, limit=100))
     await event.reply(f"🧠 В памяти есть последние {count} реплик (показываю максимум 30). Для удаления: .forget")
@@ -382,7 +373,7 @@ async def ai_memory_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.remember(?:\s|$)'))
 async def remember_fact_command(event):
-    if not is_owner_private_workspace(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
         return
     fact = event.raw_text[len(".remember"):].strip()
     try:
@@ -395,7 +386,7 @@ async def remember_fact_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.memories(?:\s|$)'))
 async def list_facts_command(event):
-    if not is_owner_private_workspace(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
         return
     facts = db.list_ai_facts(OWNER_ID)
     if not facts:
@@ -415,7 +406,7 @@ async def list_facts_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.forgetfact(?:\s|$)'))
 async def forget_fact_command(event):
-    if not is_owner_private_workspace(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
         return
     arg = event.raw_text[len(".forgetfact"):].strip()
     if not arg.isdecimal():
@@ -427,7 +418,7 @@ async def forget_fact_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.forgetallfacts(?:\s|$)'))
 async def forget_all_facts_command(event):
-    if not is_owner_private_workspace(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
         return
     if event.raw_text.strip() != ".forgetallfacts CONFIRM":
         await event.reply("Для удаления всех заметок напиши: .forgetallfacts CONFIRM")
@@ -438,7 +429,7 @@ async def forget_all_facts_command(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.tone(?:\s|$)'))
 async def set_ai_tone_command(event):
-    if not is_owner_private_workspace(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
         return
     from personality import PERSONAS
     tone = event.raw_text[len(".tone"):].strip().lower()
