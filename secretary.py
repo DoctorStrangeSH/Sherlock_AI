@@ -17,6 +17,7 @@ from reply_drafts import can_prepare_draft, draft_question, display_draft
 from draft_queue import DraftQueue
 from conversation_context import RecentChatContext
 from contact_style import setting_key, validated_style, DEFAULT_STYLE
+from style_examples import add_example, delete_example, valid_examples
 
 # Логирование
 logging.basicConfig(
@@ -335,7 +336,8 @@ async def handle_messages(event):
         previous = recent_chat_context.recent(sender_id)
         recent_chat_context.add(sender_id, "contact", event.raw_text)
         tone = db.get_setting(setting_key(sender_id), DEFAULT_STYLE)
-        question = draft_question(event.raw_text, sender_name, previous, style=tone)
+        samples = db.get_setting("draft_owner_style_examples", [])
+        question = draft_question(event.raw_text, sender_name, previous, style=tone, examples=samples)
         suggestion = await ask_local_ai(question, tone=tone)
         if (not suggestion.startswith(("Локальная модель недоступна.", "Слишком длинный запрос"))
                 and db.get_setting("reply_drafts_enabled", False)
@@ -384,6 +386,66 @@ async def handle_messages(event):
         await send_to_topic(TOPIC_INCOMING, f'📩 **Входящее**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.styleadd(?:\s|$)'))
+async def add_owner_style_example(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    sample = event.raw_text[len(".styleadd"):].strip()
+    existing = db.get_setting("draft_owner_style_examples", [])
+    try:
+        updated = add_example(existing, sample)
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    db.set_setting("draft_owner_style_examples", updated)
+    await event.reply(f"📝 Пример стиля сохранён ({len(updated)}/5). Посмотреть: .stylelist")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.stylelist(?:\s|$)'))
+async def list_owner_style_examples(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    samples = valid_examples(db.get_setting("draft_owner_style_examples", []))
+    if not samples:
+        await event.reply("Пока нет примеров. Добавить: .styleadd ТВОЯ ФРАЗА")
+        return
+    await event.reply(
+        "📝 Примеры твоего стиля:\n\n"
+        + "\n".join(f"{i}. {value}" for i, value in enumerate(samples, 1))
+        + "\n\nУдалить: .styledelete НОМЕР"
+    )
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.styledelete(?:\s|$)'))
+async def delete_owner_style_example(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".styledelete"):].strip()
+    if not value.isdecimal():
+        await event.reply("Формат: .styledelete НОМЕР")
+        return
+    try:
+        updated = delete_example(
+            db.get_setting("draft_owner_style_examples", []), int(value)
+        )
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    db.set_setting("draft_owner_style_examples", updated)
+    await event.reply("🗑️ Пример удалён.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.styleclear(?:\s|$)'))
+async def clear_owner_style_examples(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    if event.raw_text.strip() != ".styleclear CONFIRM":
+        await event.reply("Чтобы удалить все примеры: .styleclear CONFIRM")
+        return
+    db.set_setting("draft_owner_style_examples", [])
+    await event.reply("🧹 Все примеры личного стиля удалены.")
+
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.drafttone(?:\s|$)'))
 async def set_contact_draft_style(event):
