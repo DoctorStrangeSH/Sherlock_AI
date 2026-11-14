@@ -15,6 +15,7 @@ from local_ai import ask_local_ai
 from assistant_access import is_saved_messages_owner
 from reply_drafts import can_prepare_draft, draft_question, display_draft
 from draft_queue import DraftQueue
+from conversation_context import RecentChatContext
 
 # Логирование
 logging.basicConfig(
@@ -33,6 +34,7 @@ FILTER_MODE = db.get_setting("filter_mode", FILTER_MODE)
 is_online = db.get_setting("is_online", False)
 ai_dialogue_lock = asyncio.Lock()
 pending_reply_drafts = DraftQueue()
+recent_chat_context = RecentChatContext()
 
 def get_time():
     return datetime.now(MOSCOW_TZ)
@@ -279,6 +281,17 @@ async def add_black(event):
     else:
         await event.reply('Ответьте на сообщение командой .addblack')
 
+# Capture only the owner's own messages to explicitly permitted private contacts.
+# No Telegram history fetch; no persistent storage; never mix contact contexts.
+@client.on(events.NewMessage(outgoing=True))
+async def remember_owner_private_reply(event):
+    if not (db.get_setting("reply_drafts_enabled", False) and event.is_private):
+        return
+    peer_id = event.chat_id
+    if peer_id != OWNER_ID and peer_id in db.get_white_list():
+        recent_chat_context.add(peer_id, "owner", event.raw_text)
+
+
 # === ОСНОВНОЙ ОБРАБОТЧИК ===
 
 @client.on(events.NewMessage(incoming=True))
@@ -318,7 +331,9 @@ async def handle_messages(event):
         sender_id=sender_id, owner_id=OWNER_ID,
         allowed_ids=set(db.get_white_list()), text=event.raw_text,
     ):
-        question = draft_question(event.raw_text, sender_name)
+        previous = recent_chat_context.recent(sender_id)
+        recent_chat_context.add(sender_id, "contact", event.raw_text)
+        question = draft_question(event.raw_text, sender_name, previous)
         tone = db.get_setting("ai_tone", "warm")
         suggestion = await ask_local_ai(question, tone=tone)
         if (not suggestion.startswith(("Локальная модель недоступна.", "Слишком длинный запрос"))
@@ -385,6 +400,7 @@ async def toggle_reply_drafts(event):
     db.set_setting("reply_drafts_enabled", requested == "on")
     if requested == "off":
         pending_reply_drafts.clear()
+        recent_chat_context.clear()
     await event.reply(
         "✉️ Черновики включены для личных чатов из белого списка. "
         "Результаты придут в Избранное, отправка только после команды .senddraft НОМЕР."
