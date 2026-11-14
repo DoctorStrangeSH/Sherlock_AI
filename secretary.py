@@ -475,6 +475,57 @@ async def set_contact_draft_style(event):
     await event.reply(f"✅ Стиль контакта {contact_id}: {selected}")
 
 
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.draftcontacts(?:\\s|$)'))
+async def list_draft_contacts(event):
+    """Contact IDs are displayed privately, never in external chats."""
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    users = [(uid, name, count) for uid, name, count in db.get_top_users(100)
+             if uid != OWNER_ID and uid > 0 and uid not in db.get_black_list()]
+    if not users:
+        await event.reply("Пока нет известных контактов. Дождись входящего личного сообщения.")
+        return
+    permitted = set(db.get_white_list())
+    lines = [f"• {str(name)[:60]} — ID {uid} — {'✅ разрешён' if uid in permitted else '⏸ не разрешён'}"
+             for uid, name, _ in users[:20]]
+    await event.reply("👥 Контакты для черновиков:\\n" + "\\n".join(lines)
+                      + "\\n\\nРазрешить: .draftallow ID\\nЗапретить: .draftdeny ID")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.draftallow(?:\\s|$)'))
+async def allow_draft_contact(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".draftallow"):].strip()
+    if not value.isdecimal() or int(value) <= 0 or int(value) == OWNER_ID:
+        await event.reply("Формат: .draftallow ID (узнать ID: .draftcontacts)")
+        return
+    contact_id = int(value)
+    if db.get_user(contact_id) is None or contact_id in db.get_black_list():
+        await event.reply("Контакт неизвестен или заблокирован. Разрешение не выдано.")
+        return
+    db.set_white(contact_id, True)
+    await event.reply(f"✅ Контакт {contact_id} разрешён. Для запуска: .drafts on")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.draftdeny(?:\\s|$)'))
+async def deny_draft_contact(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".draftdeny"):].strip()
+    if not value.isdecimal() or int(value) <= 0 or int(value) == OWNER_ID:
+        await event.reply("Формат: .draftdeny ID (узнать ID: .draftcontacts)")
+        return
+    contact_id = int(value)
+    if db.get_user(contact_id) is None:
+        await event.reply("Контакт неизвестен. Ничего не изменено.")
+        return
+    db.set_white(contact_id, False)
+    removed = pending_reply_drafts.cancel_for_contact(contact_id)
+    recent_chat_context.forget(contact_id)
+    await event.reply(f"🛑 Контакт {contact_id} запрещён. Удалено черновиков: {removed}.")
+
+
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.drafts(?:\s|$)'))
 async def toggle_reply_drafts(event):
     """Владелец включает предложения ответов в Telegram Избранном."""
@@ -485,7 +536,7 @@ async def toggle_reply_drafts(event):
         state = "включены" if db.get_setting("reply_drafts_enabled", False) else "выключены"
         await event.reply(
             f"Черновики {state}. Команды: .drafts on / .drafts off. "
-            "Работает только для личных чатов из белого списка (.addwhite). "
+            "Работает только для разрешённых личных чатов (.draftcontacts / .draftallow ID). "
             "Предложения приходят в Избранное; собеседникам ничего не отправляется."
         )
         return
