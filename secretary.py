@@ -334,6 +334,8 @@ async def handle_messages(event):
                     "me",
                     f"{preview}\n\n"
                     f"✅ Отправить: .senddraft {draft.draft_id}\n"
+                    f"✏️ Изменить: .editdraft {draft.draft_id} НОВЫЙ ТЕКСТ\n"
+                    f"👁️ Проверить: .showdraft {draft.draft_id}\n"
                     f"❌ Отменить: .canceldraft {draft.draft_id}\n"
                     "Черновик действует 30 минут после создания.",
                 )
@@ -438,7 +440,7 @@ async def show_reply_draft(event):
         f'✏️ Изменить: .editdraft {draft.draft_id} НОВЫЙ ТЕКСТ'
     )
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.senddraft(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.senddraft(?:\s|$)'))
 async def send_reply_draft(event):
     """One-time, owner-initiated send. Never runs from incoming chats."""
     if not is_saved_messages_owner(event, OWNER_ID):
@@ -464,7 +466,7 @@ async def send_reply_draft(event):
     await event.reply(f"✅ Отправлено контакту {draft.recipient_name} (черновик #{draft.draft_id}).")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.canceldraft(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.canceldraft(?:\s|$)'))
 async def cancel_reply_draft(event):
     if not is_saved_messages_owner(event, OWNER_ID):
         return
