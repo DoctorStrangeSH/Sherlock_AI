@@ -66,8 +66,54 @@ class Database:
             )
         ''')
         
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_dialogue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_dialogue_owner_id "
+            "ON ai_dialogue(owner_id, id)"
+        )
         self.conn.commit()
     
+    def get_ai_history(self, owner_id, limit=12):
+        """Последние реплики владельца в хронологическом порядке."""
+        limit = max(0, min(int(limit), 30))
+        rows = self.conn.execute(
+            "SELECT role, content FROM ai_dialogue WHERE owner_id = ? "
+            "ORDER BY id DESC LIMIT ?", (owner_id, limit)
+        ).fetchall()
+        return [{"role": role, "content": content} for role, content in reversed(rows)]
+
+    def add_ai_exchange(self, owner_id, question, answer):
+        """Сохраняет пару реплик и не больше 100 последних сообщений."""
+        now = datetime.now(MOSCOW_TZ).isoformat()
+        with self.conn:
+            self.conn.executemany(
+                "INSERT INTO ai_dialogue(owner_id, role, content, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                [(owner_id, "user", question, now),
+                 (owner_id, "assistant", answer, now)]
+            )
+            self.conn.execute(
+                "DELETE FROM ai_dialogue WHERE owner_id = ? AND id NOT IN "
+                "(SELECT id FROM ai_dialogue WHERE owner_id = ? "
+                "ORDER BY id DESC LIMIT 100)", (owner_id, owner_id)
+            )
+
+    def clear_ai_history(self, owner_id):
+        """Удаляет всю историю ИИ для указанного владельца."""
+        with self.conn:
+            cursor = self.conn.execute(
+                "DELETE FROM ai_dialogue WHERE owner_id = ?", (owner_id,)
+            )
+        return cursor.rowcount
+
     # === ПОЛЬЗОВАТЕЛИ ===
     def add_user(self, user_id, name, username=None):
         now = datetime.now(MOSCOW_TZ).isoformat()
