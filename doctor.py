@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import urllib.error
 import urllib.request
+from model_selection import choose_model
 
 REQUIRED = (
     "TELEGRAM_API_ID",
@@ -59,18 +60,18 @@ def check_database():
 
 def check_ollama(url=None, model=None, opener=None):
     base = (url or os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")).rstrip("/")
-    selected = model or os.environ.get("OLLAMA_MODEL", "qwen2.5:3b")
+    selected = model or os.environ.get("OLLAMA_MODEL", "auto")
     request = urllib.request.Request(base + "/api/tags", method="GET")
     opener = opener or urllib.request.urlopen
     try:
         with opener(request, timeout=3) as response:
             tags = json.load(response)
         names = [item.get("name", "") for item in tags.get("models", [])]
-        if selected not in names and not any(
-            name.startswith(selected + ":") for name in names
-        ):
-            return [f"Ollama доступна, но модель {selected} не найдена. Выполни: ollama pull {selected}"]
-        return []
+        try:
+            choose_model(names, selected)
+            return []
+        except ValueError as error:
+            return [str(error)]
     except (OSError, ValueError, urllib.error.URLError):
         return ["Ollama недоступна. Запусти Ollama локально и проверь OLLAMA_URL."]
 
