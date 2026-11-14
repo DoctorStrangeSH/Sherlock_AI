@@ -4,7 +4,7 @@ Drafts never send themselves. A separately authorized owner command must
 consume a draft before the caller may send it.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import time
 
 
@@ -53,6 +53,19 @@ class DraftQueue:
     def peek(self, draft_id: int):
         self._expire()
         return self._items.get(draft_id)
+
+    def edit(self, draft_id: int, text: str, *, enabled: bool, allowed_ids) -> PendingDraft | None:
+        """Owner-edited draft retains its recipient, ID and original expiry time."""
+        self._expire()
+        old = self._items.get(draft_id)
+        if not (old and enabled and old.recipient_id in allowed_ids):
+            return None
+        text = text.strip()
+        if not text or len(text) > MAX_REPLY_LENGTH:
+            raise ValueError("Текст ответа должен содержать от 1 до 2500 символов")
+        edited = replace(old, reply=text)
+        self._items[draft_id] = edited
+        return edited
 
     def cancel(self, draft_id: int) -> bool:
         self._expire()
