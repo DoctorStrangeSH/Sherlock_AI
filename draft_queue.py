@@ -79,5 +79,13 @@ class DraftQueue:
             return None
         return self._items.pop(draft_id)
 
+    def cancel_for_contact(self, contact_id: int) -> int:
+        """Remove all unsent drafts immediately when contact access is revoked."""
+        self._expire()
+        ids = [key for key, draft in self._items.items() if draft.recipient_id == contact_id]
+        for key in ids:
+            del self._items[key]
+        return len(ids)
+
     def clear(self):
         self._items.clear()
