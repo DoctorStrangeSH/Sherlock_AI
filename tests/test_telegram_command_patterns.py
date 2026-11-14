@@ -6,7 +6,7 @@ import re
 import unittest
 
 
-COMMANDS = ("drafts", "drafttone", "styleadd", "stylelist", "styledelete", "styleclear", "senddraft", "canceldraft", "editdraft", "showdraft")
+COMMANDS = ("drafts", "draftcontacts", "draftallow", "draftdeny", "drafttone", "styleadd", "stylelist", "styledelete", "styleclear", "senddraft", "canceldraft", "editdraft", "showdraft")
 
 
 class TelegramCommandPatternTests(unittest.TestCase):
