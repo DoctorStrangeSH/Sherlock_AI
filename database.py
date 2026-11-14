@@ -75,12 +75,58 @@ class Database:
                 created_at TEXT NOT NULL
             )
         """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_facts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER NOT NULL,
+                fact TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
         self.cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_ai_dialogue_owner_id "
             "ON ai_dialogue(owner_id, id)"
         )
         self.conn.commit()
     
+    def add_ai_fact(self, owner_id, fact):
+        """Явно сохраняет заметку владельца, без автоматической добычи фактов."""
+        fact = " ".join(fact.split()).strip()
+        if not fact or len(fact) > 500:
+            raise ValueError("Заметка должна содержать от 1 до 500 символов")
+        with self.conn:
+            count = self.conn.execute(
+                "SELECT COUNT(*) FROM ai_facts WHERE owner_id = ?", (owner_id,)
+            ).fetchone()[0]
+            if count >= 50:
+                raise ValueError("Лимит памяти: 50 заметок. Удали ненужные.")
+            cur = self.conn.execute(
+                "INSERT INTO ai_facts(owner_id, fact, created_at) VALUES (?, ?, ?)",
+                (owner_id, fact, datetime.now(MOSCOW_TZ).isoformat())
+            )
+        return cur.lastrowid
+
+    def list_ai_facts(self, owner_id):
+        return self.conn.execute(
+            "SELECT id, fact FROM ai_facts WHERE owner_id = ? ORDER BY id",
+            (owner_id,)
+        ).fetchall()
+
+    def delete_ai_fact(self, owner_id, fact_id):
+        with self.conn:
+            cur = self.conn.execute(
+                "DELETE FROM ai_facts WHERE owner_id = ? AND id = ?",
+                (owner_id, fact_id)
+            )
+        return cur.rowcount > 0
+
+    def clear_ai_facts(self, owner_id):
+        with self.conn:
+            cur = self.conn.execute(
+                "DELETE FROM ai_facts WHERE owner_id = ?", (owner_id,)
+            )
+        return cur.rowcount
+
     def get_ai_history(self, owner_id, limit=12):
         """Последние реплики владельца в хронологическом порядке."""
         limit = max(0, min(int(limit), 30))
