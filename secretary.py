@@ -348,7 +348,8 @@ async def ask_ai_command(event):
         history = db.get_ai_history(OWNER_ID, limit=12)
         facts = [fact for _, fact in db.list_ai_facts(OWNER_ID)]
         tone = db.get_setting("ai_tone", "warm")
-        answer = await ask_local_ai(question, history, facts, tone)
+        tasks = [title for _, title in db.list_ai_tasks(OWNER_ID, limit=50)]
+        answer = await ask_local_ai(question, history, facts, tone, tasks)
         if not answer.startswith("Локальная модель недоступна."):
             db.add_ai_exchange(OWNER_ID, question, answer)
         await event.reply(answer[:4000])
@@ -441,6 +442,62 @@ async def set_ai_tone_command(event):
         return
     db.set_setting("ai_tone", tone)
     await event.reply(f"✨ Стиль общения: {tone}")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.taskadd(?:\s|$)'))
+async def add_task_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    title = event.raw_text[len(".taskadd"):].strip()
+    try:
+        task_id = db.add_ai_task(OWNER_ID, title)
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    await event.reply(f"✅ Записала задачу #{task_id}: {title[:300]}")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.tasks(?:\s|$)'))
+async def list_tasks_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    tasks = db.list_ai_tasks(OWNER_ID)
+    if not tasks:
+        await event.reply("🎉 Открытых задач нет. Добавить: .taskadd текст")
+        return
+    chunk = ""
+    for task_id, title in tasks:
+        line = f"#{task_id}: {title}\n"
+        if len(chunk) + len(line) > 3500:
+            await event.reply(chunk)
+            chunk = ""
+        chunk += line
+    if chunk:
+        await event.reply(chunk)
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.taskdone(?:\s|$)'))
+async def complete_task_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    arg = event.raw_text[len(".taskdone"):].strip()
+    if not arg.isdecimal():
+        await event.reply("Формат: .taskdone номер")
+        return
+    updated = db.complete_ai_task(OWNER_ID, int(arg))
+    await event.reply("✅ Задача завершена." if updated else "Открытая задача не найдена.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.taskdelete(?:\s|$)'))
+async def delete_task_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    arg = event.raw_text[len(".taskdelete"):].strip()
+    if not arg.isdecimal():
+        await event.reply("Формат: .taskdelete номер")
+        return
+    removed = db.delete_ai_task(OWNER_ID, int(arg))
+    await event.reply("🗑️ Задача удалена." if removed else "Задача не найдена.")
 
 
 # === ЗАПУСК ===
