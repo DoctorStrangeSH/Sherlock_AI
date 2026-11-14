@@ -337,8 +337,6 @@ async def handle_messages(event):
     # Белый список
     if sender_id in white_list or category == "important":
         await send_to_topic(TOPIC_IMPORTANT, f'⚡️ **ВАЖНОЕ!**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
-        if not is_online:
-            await event.reply(f'⚡️ {sender_name}, сообщение помечено как важное!')
         return
     
     # Спам
@@ -348,7 +346,6 @@ async def handle_messages(event):
     
     # Обычная обработка
     if not is_online:
-        await event.reply(get_auto_reply(sender_name))
         await send_to_topic(TOPIC_INCOMING, f'📩 **Входящее**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
