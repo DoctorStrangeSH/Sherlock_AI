@@ -1,10 +1,13 @@
 """Необязательный локальный ИИ через Ollama, без платного API."""
 import asyncio
 import json
+import os
 import urllib.error
 import urllib.request
 
-from config import OLLAMA_MODEL, OLLAMA_URL
+# Не импортируем Telegram-конфигурацию: локальный чат работает без неё.
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 
 from personality import build_system_prompt
 
