@@ -10,6 +10,8 @@ from database import db
 from filters import smart_filter
 from analytics import analytics
 from security import security
+from scheduler import Scheduler
+from local_ai import ask_local_ai
 
 # Логирование
 logging.basicConfig(
@@ -23,8 +25,9 @@ client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # Состояние
 is_online = False
-current_mode = "normal"
-FILTER_MODE = "all"
+current_mode = db.get_setting("current_mode", "normal")
+FILTER_MODE = db.get_setting("filter_mode", FILTER_MODE)
+is_online = db.get_setting("is_online", False)
 
 def get_time():
     return datetime.now(MOSCOW_TZ)
@@ -79,7 +82,7 @@ async def send_to_topic(topic_id, message):
 
 # === КОМАНДЫ (без кнопок) ===
 
-@client.on(events.NewMessage(pattern=r'\.menu'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.menu'))
 async def show_menu(event):
     menu_text = """🎛 **МЕНЮ**
 
@@ -109,7 +112,7 @@ async def show_menu(event):
     
     await event.reply(menu_text)
 
-@client.on(events.NewMessage(pattern=r'\.mode'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.mode'))
 async def set_mode(event):
     global current_mode
     
@@ -127,19 +130,19 @@ async def set_mode(event):
     else:
         await event.reply('Доступные режимы:\n.mode normal\n.mode busy\n.mode sleeping\n.mode meeting')
 
-@client.on(events.NewMessage(pattern=r'\.online'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.online'))
 async def set_online(event):
     global is_online
     is_online = True
     await event.reply('✅ Онлайн!')
 
-@client.on(events.NewMessage(pattern=r'\.offline'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.offline'))
 async def set_offline(event):
     global is_online
     is_online = False
     await event.reply('🌙 Оффлайн!')
 
-@client.on(events.NewMessage(pattern=r'\.status'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.status'))
 async def check_status(event):
     status = "Онлайн" if is_online else "Оффлайн"
     mode_names = {"normal": "😊 Обычный", "busy": "😤 Занят", "sleeping": "😴 Сплю", "meeting": "🤝 Встреча"}
@@ -154,7 +157,7 @@ async def check_status(event):
     
     await event.reply(text)
 
-@client.on(events.NewMessage(pattern=r'\.help'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.help'))
 async def help_cmd(event):
     help_text = """📋 **ВСЕ КОМАНДЫ**
 
@@ -184,7 +187,7 @@ async def help_cmd(event):
     
     await event.reply(help_text)
 
-@client.on(events.NewMessage(pattern=r'\.db'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.db'))
 async def check_db(event):
     """Проверка базы данных"""
     try:
@@ -205,7 +208,7 @@ async def check_db(event):
     except Exception as e:
         await event.reply(f'❌ Ошибка БД: {e}')
 
-@client.on(events.NewMessage(pattern=r'\.filter'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.filter'))
 async def change_filter(event):
     global FILTER_MODE
     
@@ -217,7 +220,7 @@ async def change_filter(event):
     else:
         await event.reply(f'Текущий фильтр: {FILTER_MODE}\n\nДля смены:\n.filter all — все\n.filter bot_only — только с ботом\n.filter whitelist — белый список')
 
-@client.on(events.NewMessage(pattern=r'\.stats'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.stats'))
 async def show_stats(event):
     top_users = db.get_top_users(10)
     total_messages = db.get_total_messages()
@@ -229,12 +232,12 @@ async def show_stats(event):
     await send_to_topic(TOPIC_STATS, stats_text)
     await event.reply('📊 Отправлено в тему "Статистика"!')
 
-@client.on(events.NewMessage(pattern=r'\.analytics'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.analytics'))
 async def show_analytics(event):
     report = analytics.generate_report()
     await event.reply(report)
 
-@client.on(events.NewMessage(pattern=r'\.remind'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.remind'))
 async def set_reminder(event):
     text = event.text.replace('.remind', '').strip()
     parts = text.split(' ', 1)
@@ -249,20 +252,22 @@ async def set_reminder(event):
         except ValueError:
             await event.reply('Формат: .remind минуты текст')
 
-@client.on(events.NewMessage(pattern=r'\.addwhite'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.addwhite'))
 async def add_white(event):
     if event.reply_to_msg_id:
         reply_msg = await event.get_reply_message()
+        db.add_user(reply_msg.sender_id, (await reply_msg.get_sender()).first_name or "Пользователь")
         db.set_white(reply_msg.sender_id, True)
         sender = await reply_msg.get_sender()
         await event.reply(f'✅ {sender.first_name} в белом списке!')
     else:
         await event.reply('Ответьте на сообщение командой .addwhite')
 
-@client.on(events.NewMessage(pattern=r'\.addblack'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.addblack'))
 async def add_black(event):
     if event.reply_to_msg_id:
         reply_msg = await event.get_reply_message()
+        db.add_user(reply_msg.sender_id, (await reply_msg.get_sender()).first_name or "Пользователь")
         db.set_black(reply_msg.sender_id, True)
         sender = await reply_msg.get_sender()
         await event.reply(f'🚫 {sender.first_name} в чёрном списке!')
@@ -329,6 +334,16 @@ async def handle_messages(event):
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
 
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.ask(?:\\s+|$)'))
+async def ask_ai_command(event):
+    """Обращение к бесплатной локальной модели, только из аккаунта владельца."""
+    if event.sender_id != OWNER_ID:
+        return
+    question = event.raw_text[4:].strip()
+    answer = await ask_local_ai(question)
+    await event.reply(answer[:4000])
+
+
 # === ЗАПУСК ===
 
 async def main():
@@ -337,7 +352,14 @@ async def main():
     logger.info(f"📁 Группа: {GROUP_ID}")
     logger.info(f"🔍 Фильтр: {FILTER_MODE}")
     
-    await client.run_until_disconnected()
+    scheduler = Scheduler(client, db, send_to_topic)
+    await scheduler.start()
+    try:
+        await client.run_until_disconnected()
+    finally:
+        for task in scheduler.tasks:
+            task.cancel()
+        await asyncio.gather(*scheduler.tasks, return_exceptions=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
