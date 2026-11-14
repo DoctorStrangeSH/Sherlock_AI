@@ -475,7 +475,7 @@ async def set_contact_draft_style(event):
     await event.reply(f"✅ Стиль контакта {contact_id}: {selected}")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.draftcontacts(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.draftcontacts(?:\s|$)'))
 async def list_draft_contacts(event):
     """Contact IDs are displayed privately, never in external chats."""
     if not is_saved_messages_owner(event, OWNER_ID):
@@ -492,7 +492,7 @@ async def list_draft_contacts(event):
                       + "\\n\\nРазрешить: .draftallow ID\\nЗапретить: .draftdeny ID")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.draftallow(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.draftallow(?:\s|$)'))
 async def allow_draft_contact(event):
     if not is_saved_messages_owner(event, OWNER_ID):
         return
@@ -508,7 +508,7 @@ async def allow_draft_contact(event):
     await event.reply(f"✅ Контакт {contact_id} разрешён. Для запуска: .drafts on")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.draftdeny(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.draftdeny(?:\s|$)'))
 async def deny_draft_contact(event):
     if not is_saved_messages_owner(event, OWNER_ID):
         return
