@@ -346,7 +346,8 @@ async def ask_ai_command(event):
         return
     async with ai_dialogue_lock:
         history = db.get_ai_history(OWNER_ID, limit=12)
-        answer = await ask_local_ai(question, history)
+        facts = [fact for _, fact in db.list_ai_facts(OWNER_ID)]
+        answer = await ask_local_ai(question, history, facts)
         if not answer.startswith("Локальная модель недоступна."):
             db.add_ai_exchange(OWNER_ID, question, answer)
         await event.reply(answer[:4000])
@@ -367,6 +368,62 @@ async def ai_memory_command(event):
         return
     count = len(db.get_ai_history(OWNER_ID, limit=100))
     await event.reply(f"🧠 В памяти есть последние {count} реплик (показываю максимум 30). Для удаления: .forget")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.remember(?:\\s|$)'))
+async def remember_fact_command(event):
+    if event.sender_id != OWNER_ID:
+        return
+    fact = event.raw_text[len(".remember"):].strip()
+    try:
+        fact_id = db.add_ai_fact(OWNER_ID, fact)
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    await event.reply(f"🧠 Запомнила заметку #{fact_id}. Посмотреть: .memories")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.memories(?:\\s|$)'))
+async def list_facts_command(event):
+    if event.sender_id != OWNER_ID:
+        return
+    facts = db.list_ai_facts(OWNER_ID)
+    if not facts:
+        await event.reply("Пока нет сохранённых заметок. Добавить: .remember текст")
+        return
+    lines = [f"#{fact_id}: {fact}" for fact_id, fact in facts]
+    # Telegram has a message size limit. Send manageable chunks.
+    chunk = ""
+    for line in lines:
+        if len(chunk) + len(line) + 1 > 3500:
+            await event.reply(chunk)
+            chunk = ""
+        chunk += line + "\\n"
+    if chunk:
+        await event.reply(chunk)
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.forgetfact(?:\\s|$)'))
+async def forget_fact_command(event):
+    if event.sender_id != OWNER_ID:
+        return
+    arg = event.raw_text[len(".forgetfact"):].strip()
+    if not arg.isdecimal():
+        await event.reply("Формат: .forgetfact номер")
+        return
+    removed = db.delete_ai_fact(OWNER_ID, int(arg))
+    await event.reply("🧹 Заметка удалена." if removed else "Заметка не найдена.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.forgetallfacts(?:\\s|$)'))
+async def forget_all_facts_command(event):
+    if event.sender_id != OWNER_ID:
+        return
+    if event.raw_text.strip() != ".forgetallfacts CONFIRM":
+        await event.reply("Для удаления всех заметок напиши: .forgetallfacts CONFIRM")
+        return
+    removed = db.clear_ai_facts(OWNER_ID)
+    await event.reply(f"🧹 Удалено заметок: {removed}")
 
 
 # === ЗАПУСК ===
