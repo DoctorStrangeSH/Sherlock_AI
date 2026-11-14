@@ -368,7 +368,7 @@ async def handle_messages(event):
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.drafts(?:\\s|$)'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.drafts(?:\s|$)'))
 async def toggle_reply_drafts(event):
     """Владелец включает предложения ответов в Telegram Избранном."""
     if not is_saved_messages_owner(event, OWNER_ID):
