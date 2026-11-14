@@ -16,6 +16,7 @@ from assistant_access import is_saved_messages_owner
 from reply_drafts import can_prepare_draft, draft_question, display_draft
 from draft_queue import DraftQueue
 from conversation_context import RecentChatContext
+from contact_style import setting_key, validated_style, DEFAULT_STYLE
 
 # Логирование
 logging.basicConfig(
@@ -333,8 +334,8 @@ async def handle_messages(event):
     ):
         previous = recent_chat_context.recent(sender_id)
         recent_chat_context.add(sender_id, "contact", event.raw_text)
-        question = draft_question(event.raw_text, sender_name, previous)
-        tone = db.get_setting("ai_tone", "warm")
+        tone = db.get_setting(setting_key(sender_id), DEFAULT_STYLE)
+        question = draft_question(event.raw_text, sender_name, previous, style=tone)
         suggestion = await ask_local_ai(question, tone=tone)
         if (not suggestion.startswith(("Локальная модель недоступна.", "Слишком длинный запрос"))
                 and db.get_setting("reply_drafts_enabled", False)
@@ -348,6 +349,7 @@ async def handle_messages(event):
                 await client.send_message(
                     "me",
                     f"{preview}\n\n"
+                    f"🧑 ID контакта: {sender_id} · стиль: {tone}\n"
                     f"✅ Отправить: .senddraft {draft.draft_id}\n"
                     f"✏️ Изменить: .editdraft {draft.draft_id} НОВЫЙ ТЕКСТ\n"
                     f"👁️ Проверить: .showdraft {draft.draft_id}\n"
@@ -382,6 +384,34 @@ async def handle_messages(event):
         await send_to_topic(TOPIC_INCOMING, f'📩 **Входящее**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\\.drafttone(?:\\s|$)'))
+async def set_contact_draft_style(event):
+    """Set safe, per-contact reply style, only from owner's Saved Messages."""
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    args = event.raw_text[len(".drafttone"):].strip().split()
+    if not args or len(args) > 2 or not args[0].isdecimal():
+        await event.reply("Формат: .drafttone ID_КОНТАКТА warm / concise / professional")
+        return
+    contact_id = int(args[0])
+    if contact_id not in db.get_white_list():
+        await event.reply("Контакт не в белом списке. Настройки не изменены.")
+        return
+    key = setting_key(contact_id)
+    if len(args) == 1:
+        await event.reply(
+            f"Стиль контакта {contact_id}: {db.get_setting(key, DEFAULT_STYLE)}"
+        )
+        return
+    try:
+        selected = validated_style(args[1].lower())
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    db.set_setting(key, selected)
+    await event.reply(f"✅ Стиль контакта {contact_id}: {selected}")
+
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.drafts(?:\s|$)'))
 async def toggle_reply_drafts(event):
