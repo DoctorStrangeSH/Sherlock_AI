@@ -2,6 +2,8 @@
 import asyncio
 import os
 
+from telegram_network import telegram_client_options
+
 
 async def check():
     from telethon import TelegramClient
@@ -11,7 +13,7 @@ async def check():
     api_hash = os.environ["TELEGRAM_API_HASH"]
     session = os.environ["TELEGRAM_SESSION_STRING"]
     expected = int(os.environ["TELEGRAM_OWNER_ID"])
-    async with TelegramClient(StringSession(session), api_id, api_hash) as client:
+    async with TelegramClient(StringSession(session), api_id, api_hash, **telegram_client_options()) as client:
         if not await client.is_user_authorized():
             print("❌ Telegram-сессия недействительна. Создай новую через telegram_setup.py.")
             return 1
