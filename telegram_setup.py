@@ -4,6 +4,8 @@ from getpass import getpass
 import os
 from pathlib import Path
 
+from telegram_network import telegram_client_options
+
 ENV_PATH = Path(__file__).resolve().parent / ".env"
 
 
@@ -50,7 +52,11 @@ async def authorize():
         return 1
 
     print("Авторизация создаст НОВУЮ Telegram-сессию только на твоём компьютере.")
-    async with TelegramClient(StringSession(), api_id, api_hash) as client:
+    raw_ipv6 = input("Использовать IPv6 для Telegram? [Y/n]: ").strip().lower()
+    use_ipv6 = raw_ipv6 not in {"n", "no", "нет", "false", "0"}
+    network_options = telegram_client_options({"TELEGRAM_USE_IPV6": str(use_ipv6).lower()})
+    print("Сетевой режим: IPv6." if use_ipv6 else "Сетевой режим: IPv4.")
+    async with TelegramClient(StringSession(), api_id, api_hash, **network_options) as client:
         await client.start(
             phone=lambda: input("Номер телефона (+...): ").strip(),
             code_callback=lambda: input("Код из Telegram: ").strip(),
@@ -78,6 +84,7 @@ async def authorize():
             "TELEGRAM_SESSION_STRING": session,
             "TELEGRAM_OWNER_ID": owner_id,
             "TELEGRAM_GROUP_ID": group_id,
+            "TELEGRAM_USE_IPV6": str(use_ipv6).lower(),
             "OLLAMA_MODEL": "auto",
         }
         try:
