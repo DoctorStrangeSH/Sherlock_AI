@@ -18,6 +18,7 @@ from draft_queue import DraftQueue
 from conversation_context import RecentChatContext
 from contact_style import setting_key, validated_style, DEFAULT_STYLE
 from style_examples import add_example, delete_example, valid_examples
+from telegram_network import telegram_client_options
 
 # Логирование
 logging.basicConfig(
