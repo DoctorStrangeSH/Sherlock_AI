@@ -28,8 +28,8 @@ def check_environment(environ=None):
         raw = source.get(key, "").strip()
         if raw:
             try:
-                if int(raw) <= 0:
-                    problems.append(f"{key} должна быть положительным числом")
+                if (int(raw) <= 0 and key != "TELEGRAM_GROUP_ID") or (key == "TELEGRAM_GROUP_ID" and int(raw) == 0):
+                    problems.append(f"{key} должна быть ненулевым ID (для групп обычно отрицательным)")
             except ValueError:
                 problems.append(f"{key} должна быть целым числом")
     return problems
