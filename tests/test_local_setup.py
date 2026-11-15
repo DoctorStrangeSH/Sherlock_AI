@@ -33,9 +33,9 @@ class LocalSetupTests(unittest.TestCase):
     def test_only_whitelisted_settings_are_loaded(self):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / ".env"
-            target.write_text("# comment\nOLLAMA_MODEL=auto\n", encoding="utf-8")
+            target.write_text("# comment\nOLLAMA_MODEL=auto\nTELEGRAM_USE_IPV6=true\n", encoding="utf-8")
             self.assertEqual(
-                load_local_environment(target, inherited={}), {"OLLAMA_MODEL": "auto"}
+                load_local_environment(target, inherited={}), {"OLLAMA_MODEL": "auto", "TELEGRAM_USE_IPV6": "true"}
             )
 
 
