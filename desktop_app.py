@@ -1,6 +1,7 @@
 """Sherlock AI desktop chat for Windows. No Telegram configuration required."""
 
 import asyncio
+import time
 import queue
 import threading
 import tkinter as tk
@@ -29,8 +30,8 @@ class SherlockDesktop:
         self.busy = False
         self.closed = False
         root.title("Sherlock AI — личный помощник")
-        root.geometry("860x650")
-        root.minsize(560, 460)
+        root.geometry("920x640")
+        root.minsize(620, 480)
         root.configure(bg=BACKGROUND)
         root.protocol("WM_DELETE_WINDOW", self.close)
 
@@ -40,12 +41,21 @@ class SherlockDesktop:
                  fg=TEXT, bg=BACKGROUND).pack(anchor="w")
         tk.Label(header, text="Твой локальный помощник · приватный разговор",
                  font=("Segoe UI", 10), fg=MUTED, bg=BACKGROUND).pack(anchor="w")
+        self.activity = tk.Label(header, text="Готов к общению · Telegram не требуется",
+                                 font=("Segoe UI", 9), fg="#98e7c9", bg=BACKGROUND)
+        self.activity.pack(anchor="w", pady=(7, 0))
 
         settings = tk.Frame(root, bg=BACKGROUND, padx=24)
         settings.pack(fill="x")
         self.model_label = tk.Label(settings, text="Модель: проверяется…",
                                     bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 10))
         self.model_label.pack(side="left")
+        tk.Button(settings, text="Задачи", command=lambda: open_workspace(self.root, 0),
+                  bg=SURFACE, fg=TEXT, activebackground=INPUT,
+                  relief="flat", padx=12).pack(side="left", padx=(16, 5))
+        tk.Button(settings, text="Заметки", command=lambda: open_workspace(self.root, 1),
+                  bg=SURFACE, fg=TEXT, activebackground=INPUT,
+                  relief="flat", padx=12).pack(side="left", padx=(0, 5))
         self.tone = tk.StringVar(value="Тёплый")
         style = ttk.Style(root)
         style.theme_use("clam")
@@ -60,7 +70,7 @@ class SherlockDesktop:
         tk.Label(settings, text="Стиль общения:", bg=BACKGROUND, fg=MUTED).pack(
             side="right", padx=(0, 8))
 
-        self.chat = ScrolledText(root, wrap="word", bg=SURFACE, fg=TEXT,
+        self.chat = ScrolledText(root, height=8, wrap="word", bg=SURFACE, fg=TEXT,
                                  insertbackground=TEXT, font=("Segoe UI", 11),
                                  relief="flat", padx=18, pady=16, state="disabled",
                                  spacing2=5)
@@ -71,7 +81,7 @@ class SherlockDesktop:
 
         composer = tk.Frame(root, bg=BACKGROUND, padx=24)
         composer.pack(fill="x")
-        self.input = tk.Text(composer, height=3, bg=INPUT, fg=TEXT,
+        self.input = tk.Text(composer, height=2, bg=INPUT, fg=TEXT,
                              insertbackground=TEXT, wrap="word", relief="flat",
                              font=("Segoe UI", 11), padx=12, pady=10)
         self.input.pack(side="left", fill="both", expand=True)
@@ -126,6 +136,8 @@ class SherlockDesktop:
         history = self.session.snapshot()
         tone = TONES[self.tone.get()]
         self.busy = True
+        self.started_at = time.monotonic()
+        self.activity.configure(text="Sherlock AI формирует ответ · первый запуск модели может занять время", fg=ACCENT)
         self.send_button.configure(state="disabled")
         self.status.configure(text="Sherlock AI думает…")
         threading.Thread(target=self.generate, args=(question, history, tone),
@@ -153,8 +165,12 @@ class SherlockDesktop:
                 self.append("Sherlock AI", answer, "assistant")
                 self.session.record(question, answer)
                 self.busy = False
+                self.activity.configure(text="Готов к общению", fg="#98e7c9")
                 self.send_button.configure(state="normal")
                 self.status.configure(text="Ctrl+Enter — отправить · История только в памяти окна")
+        if self.busy:
+            elapsed = int(time.monotonic() - self.started_at)
+            self.activity.configure(text=f"Sherlock AI думает… {elapsed} с · ожидаем ответ локальной модели")
         self.root.after(100, self.poll)
 
     def clear(self) -> None:
