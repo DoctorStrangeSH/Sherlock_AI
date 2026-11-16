@@ -51,6 +51,9 @@ class SherlockDesktop:
         style.theme_use("clam")
         style.configure("Sherlock.TCombobox", fieldbackground=INPUT, background=INPUT,
                         foreground=TEXT, arrowcolor=TEXT)
+        style.map("Sherlock.TCombobox", fieldbackground=[("readonly", INPUT)],
+                  foreground=[("readonly", TEXT)], selectbackground=[("readonly", INPUT)],
+                  selectforeground=[("readonly", TEXT)])
         picker = ttk.Combobox(settings, textvariable=self.tone, state="readonly",
                               values=list(TONES), width=13, style="Sherlock.TCombobox")
         picker.pack(side="right")
