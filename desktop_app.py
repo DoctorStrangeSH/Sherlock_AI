@@ -64,7 +64,7 @@ class SherlockDesktop:
         tk.Label(navigation, text="РАЗДЕЛЫ", bg="#10182a", fg=MUTED,
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(2, 12))
         self.nav_buttons = {}
-        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory"), ("▤ История", "history")):
+        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory"), ("▤ История", "history"), ("⚙ Настройки", "settings")):
             button = tk.Button(navigation, text=label, command=lambda page=target: self.show_page(page),
                                bg=INPUT if target == "chat" else "#10182a", fg=TEXT,
                                activebackground=INPUT, activeforeground=TEXT,
@@ -77,7 +77,12 @@ class SherlockDesktop:
         self.content_area.pack(side="left", fill="both", expand=True)
         self.chat_page = tk.Frame(self.content_area, bg=BACKGROUND)
         self.chat_page.pack(fill="both", expand=True)
-        settings = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24)
+        self.settings_page = tk.Frame(self.content_area, bg=BACKGROUND)
+        tk.Label(self.settings_page, text="Настройки помощника", bg=BACKGROUND, fg=TEXT,
+                 font=("Segoe UI", 19, "bold")).pack(anchor="w", padx=24, pady=(26, 8))
+        tk.Label(self.settings_page, text="Выбор модели и производительности действует только на этом компьютере.",
+                 bg=BACKGROUND, fg=MUTED, wraplength=480, justify="left").pack(anchor="w", padx=24, pady=(0, 22))
+        settings = tk.Frame(self.settings_page, bg=BACKGROUND, padx=24)
         settings.pack(fill="x")
         self.model_label = tk.Label(settings, text="Модель: проверяется…",
                                     bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 10))
@@ -85,7 +90,7 @@ class SherlockDesktop:
         self.model_picker = ttk.Combobox(settings, textvariable=self.model_choice, width=16, state="readonly")
         self.model_picker.pack(side="left", padx=(9, 0))
         self.model_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
-        self.tone = tk.StringVar(value="Тёплый")
+        self.tone = tk.StringVar(value=self.load_tone())
         style = ttk.Style(root)
         style.theme_use("clam")
         style.configure("Sherlock.TCombobox", fieldbackground=INPUT, background=INPUT,
@@ -94,7 +99,7 @@ class SherlockDesktop:
                   foreground=[("readonly", TEXT)], selectbackground=[("readonly", INPUT)],
                   selectforeground=[("readonly", TEXT)])
 
-        performance_bar = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24)
+        performance_bar = tk.Frame(self.settings_page, bg=BACKGROUND, padx=24)
         performance_bar.pack(fill="x", pady=(9, 0))
         tk.Label(performance_bar, text="Скорость:", bg=BACKGROUND, fg=MUTED).pack(side="left")
         self.performance_picker = ttk.Combobox(performance_bar, textvariable=self.performance,
@@ -106,6 +111,10 @@ class SherlockDesktop:
         picker = ttk.Combobox(performance_bar, textvariable=self.tone, state="readonly",
                               values=list(TONES), width=11, style="Sherlock.TCombobox")
         picker.pack(side="left", padx=(8, 0))
+        picker.bind("<<ComboboxSelected>>", self.save_model_choice)
+        tk.Label(self.settings_page,
+                 text="Быстро: краткие ответы · Баланс: повседневная работа · Качество: больше контекста",
+                 bg=BACKGROUND, fg=MUTED, wraplength=480, justify="left").pack(anchor="w", padx=24, pady=(22, 0))
 
         self.chat = ScrolledText(self.chat_page, height=8, wrap="word", bg=SURFACE, fg=TEXT,
                                  insertbackground=TEXT, font=("Segoe UI", 11),
@@ -147,12 +156,16 @@ class SherlockDesktop:
     def show_page(self, page: str) -> None:
         for name, button in self.nav_buttons.items():
             button.configure(bg=INPUT if name == page else "#10182a")
+        self.chat_page.pack_forget()
+        self.settings_page.pack_forget()
+        if self.workspace_panel is not None:
+            self.workspace_panel.window.pack_forget()
         if page == "chat":
-            if self.workspace_panel is not None:
-                self.workspace_panel.window.pack_forget()
             self.chat_page.pack(fill="both", expand=True)
             return
-        self.chat_page.pack_forget()
+        if page == "settings":
+            self.settings_page.pack(fill="both", expand=True)
+            return
         if self.workspace_panel is None:
             workspace_frame = tk.Frame(self.content_area, bg=BACKGROUND)
             self.workspace_panel = WorkspaceWindow(workspace_frame, embedded=True,
@@ -173,6 +186,13 @@ class SherlockDesktop:
         except (OSError, ValueError, TypeError):
             return "Авто"
 
+    def load_tone(self) -> str:
+        try:
+            value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("tone", "Тёплый")
+            return value if value in TONES else "Тёплый"
+        except (OSError, ValueError, TypeError):
+            return "Тёплый"
+
     def load_performance(self) -> str:
         try:
             value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("performance", "Быстро")
@@ -183,7 +203,8 @@ class SherlockDesktop:
     def save_model_choice(self, event=None) -> None:
         try:
             self.model_config_path.parent.mkdir(parents=True, exist_ok=True)
-            self.model_config_path.write_text(json.dumps({"model": self.model_choice.get(), "performance": self.performance.get()}, ensure_ascii=False), encoding="utf-8")
+            self.model_config_path.write_text(json.dumps({"model": self.model_choice.get(), "performance": self.performance.get(),
+                                                        "tone": self.tone.get()}, ensure_ascii=False), encoding="utf-8")
         except OSError:
             self.status.configure(text="Не удалось сохранить выбор модели.")
 
