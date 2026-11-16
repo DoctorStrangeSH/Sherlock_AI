@@ -19,6 +19,7 @@ from local_file_preview import preview_text_file
 from local_document_analysis import build_document_prompt, MAX_ANALYSIS_CHARS
 from local_folder_search import search_text_folder
 from local_recent_files import recent_text_files, format_recent_file
+from local_commands import parse_local_command
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -260,13 +261,13 @@ class SherlockDesktop:
             self.search_folder = folder
             self.search_details.configure(text="Папка: " + folder)
 
-    def start_folder_search(self) -> None:
+    def start_folder_search(self, command_question=None, command_query=None) -> None:
         if self.searching or self.closed:
             return
         if not self.search_folder:
             self.search_details.configure(text="Сначала выбери папку.")
             return
-        query = self.search_query.get().strip()
+        query = command_query if command_query is not None else self.search_query.get().strip()
         if not query or len(query) > 120:
             self.search_details.configure(text="Введите запрос длиной от 1 до 120 символов.")
             return
@@ -275,9 +276,9 @@ class SherlockDesktop:
         self.recent_button.configure(state="disabled")
         self.search_details.configure(text="Ищу в выбранной папке…")
         threading.Thread(target=self.search_folder_worker,
-                         args=(self.search_folder, query), daemon=True).start()
+                         args=(self.search_folder, query, command_question), daemon=True).start()
 
-    def start_recent_files(self) -> None:
+    def start_recent_files(self, command_question=None) -> None:
         if self.searching or self.closed:
             return
         if not self.search_folder:
@@ -288,21 +289,23 @@ class SherlockDesktop:
         self.recent_button.configure(state="disabled")
         self.search_details.configure(text="Проверяю даты изменения файлов…")
         threading.Thread(target=self.recent_files_worker,
-                         args=(self.search_folder,), daemon=True).start()
+                         args=(self.search_folder, command_question), daemon=True).start()
 
-    def recent_files_worker(self, folder: str) -> None:
+    def recent_files_worker(self, folder: str, question=None) -> None:
         try:
             result = recent_text_files(folder)
-            self.events.put(("recent_files", result, None))
+            self.events.put(("recent_files", result, None, question))
         except (OSError, ValueError) as exc:
-            self.events.put(("recent_files", None, str(exc)))
+            self.events.put(("recent_files", None, str(exc), question))
 
-    def display_recent_files(self, result, error) -> None:
+    def display_recent_files(self, result, error, question=None) -> None:
         self.searching = False
         self.search_button.configure(state="normal")
         self.recent_button.configure(state="normal")
         if error:
             self.search_details.configure(text="Ошибка просмотра: " + error)
+            if question:
+                self.append("Sherlock AI", "Не удалось показать файлы: " + error, "assistant")
             return
         self.search_details.configure(text="Недавно изменённые документы · проверено: {}{}".format(
             result["checked"], " · достигнут лимит" if result["limit_reached"] else ""))
@@ -311,20 +314,25 @@ class SherlockDesktop:
         self.search_results.delete("1.0", "end")
         self.search_results.insert("1.0", "\n\n".join(entries) if entries else "Текстовых файлов не найдено.")
         self.search_results.configure(state="disabled")
+        if question:
+            self.append("Sherlock AI", "Последние документы (подробности в «Инструментах»):\n" +
+                        ("\n".join(item["path"] for item in result["files"][:5]) or "Файлов нет."), "assistant")
 
-    def search_folder_worker(self, folder: str, query: str) -> None:
+    def search_folder_worker(self, folder: str, query: str, question=None) -> None:
         try:
             result = search_text_folder(folder, query)
-            self.events.put(("folder_search", result, None))
+            self.events.put(("folder_search", result, None, question))
         except (OSError, ValueError) as exc:
-            self.events.put(("folder_search", None, str(exc)))
+            self.events.put(("folder_search", None, str(exc), question))
 
-    def display_folder_search(self, result, error) -> None:
+    def display_folder_search(self, result, error, question=None) -> None:
         self.searching = False
         self.search_button.configure(state="normal")
         self.recent_button.configure(state="normal")
         if error:
             self.search_details.configure(text="Ошибка поиска: " + error)
+            if question:
+                self.append("Sherlock AI", "Поиск не завершён: " + error, "assistant")
             return
         self.search_details.configure(text="Проверено: {} · найдено: {} · пропущено: {}{}".format(
             result["checked"], len(result["matches"]), result["skipped"],
@@ -336,6 +344,9 @@ class SherlockDesktop:
         self.search_results.delete("1.0", "end")
         self.search_results.insert("1.0", "\n".join(lines) if lines else "Совпадений не найдено.")
         self.search_results.configure(state="disabled")
+        if question:
+            self.append("Sherlock AI", "Найдено совпадений: {}. Подробности в «Инструментах».\n{}".format(
+                len(result["matches"]), "\n".join(item["path"] for item in result["matches"][:5])), "assistant")
 
     def show_page(self, page: str) -> None:
         for name, button in self.nav_buttons.items():
@@ -426,6 +437,24 @@ class SherlockDesktop:
         question = self.input.get("1.0", "end-1c").strip()
         if not question:
             return
+        command = parse_local_command(question)
+        if command is not None:
+            self.input.delete("1.0", "end")
+            self.append("Ты", question, "user")
+            if not self.search_folder:
+                self.append("Sherlock AI", "Сначала выбери папку в разделе «Инструменты» → «Папка…».", "assistant")
+                self.show_page("tools")
+                return
+            if self.searching:
+                self.append("Sherlock AI", "Поиск уже выполняется. Дождись его завершения.", "assistant")
+                return
+            if command[0] == "recent":
+                self.start_recent_files(command_question=question)
+            else:
+                self.search_query.delete(0, "end")
+                self.search_query.insert(0, command[1])
+                self.start_folder_search(command_question=question, command_query=command[1])
+            return
         model = self.model_choice.get()
         if model != "Авто" and model not in self.model_picker["values"]:
             self.status.configure(text="Выбранная модель не установлена на этом компьютере.")
@@ -500,9 +529,9 @@ class SherlockDesktop:
                         self.model_choice.set("Авто")
                         self.save_model_choice()
             elif event[0] == "recent_files":
-                self.display_recent_files(event[1], event[2])
+                self.display_recent_files(event[1], event[2], event[3])
             elif event[0] == "folder_search":
-                self.display_folder_search(event[1], event[2])
+                self.display_folder_search(event[1], event[2], event[3])
             elif event[0] == "answer":
                 _, question, answer = event
                 if not self.stream_has_chunks or answer.startswith(("Ошибка генерации", "Локальная модель недоступна", "Не удалось получить ответ")):
