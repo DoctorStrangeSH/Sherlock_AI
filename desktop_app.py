@@ -1,6 +1,9 @@
 """Sherlock AI desktop chat for Windows. No Telegram configuration required."""
 
 import asyncio
+import json
+import os
+from pathlib import Path
 import time
 import queue
 import threading
@@ -10,7 +13,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from offline_workspace_app import open_workspace
 from desktop_logic import ConversationSession
-from local_ai import ask_local_ai, selected_model
+from local_ai import ask_local_ai, selected_model, installed_models
 
 
 BACKGROUND = "#0b1020"
@@ -29,6 +32,8 @@ class SherlockDesktop:
         self.events = queue.Queue()
         self.busy = False
         self.closed = False
+        self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
+        self.model_choice = tk.StringVar(value=self.load_model_choice())
         root.title("Sherlock AI — личный помощник")
         root.geometry("920x640")
         root.minsize(620, 480)
@@ -50,6 +55,9 @@ class SherlockDesktop:
         self.model_label = tk.Label(settings, text="Модель: проверяется…",
                                     bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 10))
         self.model_label.pack(side="left")
+        self.model_picker = ttk.Combobox(settings, textvariable=self.model_choice, width=16, state="readonly")
+        self.model_picker.pack(side="left", padx=(9, 0))
+        self.model_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
         tk.Button(settings, text="Задачи", command=lambda: open_workspace(self.root, 0),
                   bg=SURFACE, fg=TEXT, activebackground=INPUT,
                   relief="flat", padx=12).pack(side="left", padx=(16, 5))
@@ -114,10 +122,24 @@ class SherlockDesktop:
         self.chat.configure(state="disabled")
         self.chat.see("end")
 
+    def load_model_choice(self) -> str:
+        try:
+            return json.loads(self.model_config_path.read_text(encoding="utf-8")).get("model", "Авто")
+        except (OSError, ValueError, TypeError):
+            return "Авто"
+
+    def save_model_choice(self, event=None) -> None:
+        try:
+            self.model_config_path.parent.mkdir(parents=True, exist_ok=True)
+            self.model_config_path.write_text(json.dumps({"model": self.model_choice.get()}, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            self.status.configure(text="Не удалось сохранить выбор модели.")
+
     def check_model(self) -> None:
         try:
             result = selected_model()
-            self.events.put(("model", "Модель: " + result))
+            models = installed_models()
+            self.events.put(("model", "Модель: " + result, models))
         except Exception:
             self.events.put(("model", "Ollama не готова · проверь установку и модель"))
 
@@ -134,18 +156,22 @@ class SherlockDesktop:
         self.input.delete("1.0", "end")
         self.append("Ты", question, "user")
         history = self.session.snapshot()
+        model = self.model_choice.get()
+        if model != "Авто" and model not in self.model_picker["values"]:
+            self.status.configure(text="Выбранная модель не установлена на этом компьютере.")
+            return
         tone = TONES[self.tone.get()]
         self.busy = True
         self.started_at = time.monotonic()
         self.activity.configure(text="Sherlock AI формирует ответ · первый запуск модели может занять время", fg=ACCENT)
         self.send_button.configure(state="disabled")
         self.status.configure(text="Sherlock AI думает…")
-        threading.Thread(target=self.generate, args=(question, history, tone),
+        threading.Thread(target=self.generate, args=(question, history, tone, None if model == "Авто" else model),
                          daemon=True).start()
 
-    def generate(self, question: str, history: list, tone: str) -> None:
+    def generate(self, question: str, history: list, tone: str, model: str | None) -> None:
         try:
-            answer = asyncio.run(ask_local_ai(question, history=history, tone=tone))
+            answer = asyncio.run(ask_local_ai(question, history=history, tone=tone, model=model))
         except Exception:
             answer = "Не удалось получить ответ. Проверь подключение к Ollama."
         self.events.put(("answer", question, answer))
@@ -160,6 +186,12 @@ class SherlockDesktop:
                 break
             if event[0] == "model":
                 self.model_label.configure(text=event[1])
+                if len(event) > 2:
+                    models = ["Авто"] + event[2]
+                    self.model_picker["values"] = models
+                    if self.model_choice.get() not in models:
+                        self.model_choice.set("Авто")
+                        self.save_model_choice()
             elif event[0] == "answer":
                 _, question, answer = event
                 self.append("Sherlock AI", answer, "assistant")
