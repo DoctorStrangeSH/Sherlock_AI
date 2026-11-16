@@ -66,8 +66,19 @@ class WorkspaceWindow:
         self._controls(self.task_frame, (("Добавить задачу", self.add_task),
                                          ("Выполнено", self.complete_task),
                                          ("Удалить", self.delete_task)))
-        self._controls(self.note_frame, (("Добавить заметку", self.add_note),
+        self._controls(self.note_frame, (("Новая", self.add_note),
+                                         ("Изменить", self.edit_note),
+                                         ("Сохранить", self.save_note),
                                          ("Удалить", self.delete_note)))
+        self.editing_note_id = None
+        self.note_hint = tk.Label(self.note_frame, text="Новая заметка · до 1000 символов",
+                                  bg=BG, fg=MUTED, anchor="w")
+        self.note_hint.pack(fill="x", padx=18, pady=(0, 5))
+        self.note_editor = tk.Text(self.note_frame, height=5, bg=INPUT, fg=FG,
+                                   insertbackground=FG, wrap="word", relief="flat",
+                                   font=("Segoe UI", 10), padx=12, pady=9)
+        self.note_editor.pack(fill="x", padx=18, pady=(0, 10))
+        self.notes.bind("<Double-1>", lambda _event: self.edit_note())
         self.status = tk.Label(window, text="", bg=BG, fg=MUTED,
                                font=("Segoe UI", 9))
         self.status.pack(anchor="w", padx=20, pady=(0, 9))
@@ -130,18 +141,42 @@ class WorkspaceWindow:
             self.refresh()
 
     def add_note(self):
-        content = simpledialog.askstring("Новая заметка", "Что запомнить?", parent=self.window)
-        if content is not None:
-            try:
+        self.editing_note_id = None
+        self.note_editor.delete("1.0", "end")
+        self.note_hint.configure(text="Новая заметка · до 1000 символов")
+        self.note_editor.focus_set()
+
+    def edit_note(self):
+        note_id = self._selected(self.notes)
+        if note_id is None:
+            self.status.configure(text="Выбери заметку для редактирования.")
+            return
+        values = self.notes.item(str(note_id), "values")
+        self.editing_note_id = note_id
+        self.note_editor.delete("1.0", "end")
+        self.note_editor.insert("1.0", values[0] if values else "")
+        self.note_hint.configure(text=f"Редактирование заметки №{note_id}")
+        self.note_editor.focus_set()
+
+    def save_note(self):
+        content = self.note_editor.get("1.0", "end-1c")
+        try:
+            if self.editing_note_id is None:
                 self.store.add_note(content)
-                self.refresh()
-            except ValueError as exc:
-                messagebox.showwarning("Проверь текст", str(exc), parent=self.window)
+            elif not self.store.update_note(self.editing_note_id, content):
+                self.status.configure(text="Заметка уже удалена. Обнови список.")
+                return
+            self.add_note()
+            self.refresh()
+        except ValueError as exc:
+            messagebox.showwarning("Проверь текст", str(exc), parent=self.window)
 
     def delete_note(self):
         note_id = self._selected(self.notes)
         if note_id is not None and messagebox.askyesno("Удалить заметку?", "Удалить выбранную заметку?", parent=self.window):
             self.store.delete_note(note_id)
+            if self.editing_note_id == note_id:
+                self.add_note()
             self.refresh()
 
     def select_tab(self, index):
