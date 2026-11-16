@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
+from offline_workspace_app import open_workspace
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model
 
@@ -82,6 +83,9 @@ class SherlockDesktop:
         self.status = tk.Label(footer, text="Ctrl+Enter — отправить · История только в памяти окна",
                                bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9))
         self.status.pack(side="left")
+        tk.Button(footer, text="Задачи и заметки", command=lambda: open_workspace(self.root),
+                  bg=SURFACE, fg=TEXT, activebackground=INPUT,
+                  relief="flat", padx=12).pack(side="right", padx=(10, 0))
         tk.Button(footer, text="Очистить диалог", command=self.clear,
                   bg=BACKGROUND, fg=MUTED, activebackground=SURFACE,
                   relief="flat").pack(side="right")
