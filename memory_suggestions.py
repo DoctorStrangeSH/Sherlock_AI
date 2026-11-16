@@ -4,7 +4,7 @@ This does not call a model and never persists anything by itself.
 """
 import re
 
-_PREFIX = re.compile(r"^\s*запомни(?:,|\s+)(?:что\s+)?", re.IGNORECASE)
+_PREFIX = re.compile(r"^\s*запомни(?:\s*,\s*|\s+)(?:что\s+)?", re.IGNORECASE)
 _SENSITIVE = re.compile(
     r"парол|password|api[_ -]?key|api[_ -]?hash|токен|token|секрет|secret|"
     r"код\s+(?:входа|подтверждения|из\s+смс)|2fa|otp|private\s+key",
