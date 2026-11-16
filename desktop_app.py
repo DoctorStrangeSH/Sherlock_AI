@@ -17,6 +17,7 @@ from offline_workspace import OfflineWorkspace
 from memory_suggestions import proposed_memory
 from local_file_preview import preview_text_file
 from local_document_analysis import build_document_prompt, MAX_ANALYSIS_CHARS
+from local_folder_search import search_text_folder
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -41,6 +42,8 @@ class SherlockDesktop:
         self.full_history = []
         self.selected_file_excerpt = ""
         self.selected_file_name = ""
+        self.search_folder = ""
+        self.searching = False
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.model_choice = tk.StringVar(value=self.load_model_choice())
         self.performance = tk.StringVar(value=self.load_performance())
@@ -99,7 +102,24 @@ class SherlockDesktop:
         self.file_preview = ScrolledText(self.tools_page, wrap="word", bg=SURFACE, fg=TEXT,
                                          font=("Consolas", 10), state="disabled", relief="flat",
                                          padx=12, pady=10)
-        self.file_preview.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        self.file_preview.pack(fill="both", expand=True, padx=24, pady=(0, 9))
+        search_bar = tk.Frame(self.tools_page, bg=BACKGROUND)
+        search_bar.pack(fill="x", padx=24, pady=(0, 7))
+        tk.Button(search_bar, text="Папка…", command=self.choose_search_folder,
+                  bg=INPUT, fg=TEXT, relief="flat", padx=10).pack(side="left")
+        self.search_query = tk.Entry(search_bar, bg=INPUT, fg=TEXT, insertbackground=TEXT,
+                                     relief="flat", font=("Segoe UI", 10))
+        self.search_query.pack(side="left", fill="x", expand=True, padx=8)
+        self.search_button = tk.Button(search_bar, text="Найти", command=self.start_folder_search,
+                                       bg=ACCENT, fg=BACKGROUND, relief="flat", padx=10)
+        self.search_button.pack(side="left")
+        self.search_details = tk.Label(self.tools_page, text="Поиск: сначала выбери папку · без отправки в ИИ",
+                                        bg=BACKGROUND, fg=MUTED, wraplength=520, justify="left")
+        self.search_details.pack(anchor="w", padx=24)
+        self.search_results = ScrolledText(self.tools_page, height=6, wrap="word", bg=SURFACE,
+                                            fg=TEXT, font=("Consolas", 9), state="disabled",
+                                            relief="flat", padx=12, pady=7)
+        self.search_results.pack(fill="x", padx=24, pady=(4, 12))
 
         self.settings_page = tk.Frame(self.content_area, bg=BACKGROUND)
         tk.Label(self.settings_page, text="Настройки помощника", bg=BACKGROUND, fg=TEXT,
@@ -229,6 +249,52 @@ class SherlockDesktop:
         self.show_page("chat")
         self.input.insert("1.0", prompt)
         self.send()
+
+    def choose_search_folder(self) -> None:
+        folder = filedialog.askdirectory(parent=self.root, title="Выбрать папку для локального поиска")
+        if folder:
+            self.search_folder = folder
+            self.search_details.configure(text="Папка: " + folder)
+
+    def start_folder_search(self) -> None:
+        if self.searching or self.closed:
+            return
+        if not self.search_folder:
+            self.search_details.configure(text="Сначала выбери папку.")
+            return
+        query = self.search_query.get().strip()
+        if not query or len(query) > 120:
+            self.search_details.configure(text="Введите запрос длиной от 1 до 120 символов.")
+            return
+        self.searching = True
+        self.search_button.configure(state="disabled")
+        self.search_details.configure(text="Ищу в выбранной папке…")
+        threading.Thread(target=self.search_folder_worker,
+                         args=(self.search_folder, query), daemon=True).start()
+
+    def search_folder_worker(self, folder: str, query: str) -> None:
+        try:
+            result = search_text_folder(folder, query)
+            self.events.put(("folder_search", result, None))
+        except (OSError, ValueError) as exc:
+            self.events.put(("folder_search", None, str(exc)))
+
+    def display_folder_search(self, result, error) -> None:
+        self.searching = False
+        self.search_button.configure(state="normal")
+        if error:
+            self.search_details.configure(text="Ошибка поиска: " + error)
+            return
+        self.search_details.configure(text="Проверено: {} · найдено: {} · пропущено: {}{}".format(
+            result["checked"], len(result["matches"]), result["skipped"],
+            " · достигнут лимит поиска" if result["limit_reached"] else ""))
+        lines = []
+        for item in result["matches"]:
+            lines.append("{}\n  {}\n".format(item["path"], item["excerpt"]))
+        self.search_results.configure(state="normal")
+        self.search_results.delete("1.0", "end")
+        self.search_results.insert("1.0", "\n".join(lines) if lines else "Совпадений не найдено.")
+        self.search_results.configure(state="disabled")
 
     def show_page(self, page: str) -> None:
         for name, button in self.nav_buttons.items():
@@ -392,6 +458,8 @@ class SherlockDesktop:
                     if self.model_choice.get() not in models:
                         self.model_choice.set("Авто")
                         self.save_model_choice()
+            elif event[0] == "folder_search":
+                self.display_folder_search(event[1], event[2])
             elif event[0] == "answer":
                 _, question, answer = event
                 if not self.stream_has_chunks or answer.startswith(("Ошибка генерации", "Локальная модель недоступна", "Не удалось получить ответ")):
