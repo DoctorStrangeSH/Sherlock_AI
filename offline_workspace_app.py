@@ -5,6 +5,38 @@ from tkinter import messagebox, simpledialog, ttk
 from offline_workspace import OfflineWorkspace
 
 
+BG = "#0b1020"
+PANEL = "#151d32"
+INPUT = "#1e2942"
+FG = "#e7eaf2"
+MUTED = "#98a6c4"
+ACCENT = "#8b9eff"
+
+
+def configure_dark_theme(window):
+    style = ttk.Style(window)
+    style.theme_use("clam")
+    style.configure("Sherlock.TFrame", background=BG)
+    style.configure("Sherlock.TNotebook", background=BG, borderwidth=0)
+    style.configure("Sherlock.TNotebook.Tab", background=INPUT, foreground=FG,
+                    padding=(18, 10), font=("Segoe UI", 10))
+    style.map("Sherlock.TNotebook.Tab", background=[("selected", PANEL), ("active", PANEL)],
+              foreground=[("selected", ACCENT)])
+    style.configure("Sherlock.Treeview", background=PANEL, fieldbackground=PANEL,
+                    foreground=FG, rowheight=32, borderwidth=0,
+                    font=("Segoe UI", 10))
+    style.map("Sherlock.Treeview", background=[("selected", "#35446e")],
+              foreground=[("selected", "#ffffff")])
+    style.configure("Sherlock.Treeview.Heading", background=INPUT, foreground=MUTED,
+                    font=("Segoe UI", 10, "bold"), padding=9, relief="flat")
+    style.map("Sherlock.Treeview.Heading", background=[("active", "#293757")])
+    style.configure("Sherlock.TButton", background=INPUT, foreground=FG,
+                    padding=(13, 9), borderwidth=0, font=("Segoe UI", 10))
+    style.map("Sherlock.TButton", background=[("active", "#34456e"),
+                                              ("pressed", "#34456e")],
+              foreground=[("disabled", MUTED)])
+
+
 class WorkspaceWindow:
     def __init__(self, window):
         self.window = window
@@ -12,16 +44,17 @@ class WorkspaceWindow:
         window.title("Sherlock AI — задачи и заметки")
         window.geometry("760x510")
         window.minsize(580, 400)
-        window.configure(bg="#0b1020")
+        window.configure(bg=BG)
         window.protocol("WM_DELETE_WINDOW", self.close)
+        configure_dark_theme(window)
         tk.Label(window, text="Задачи и заметки", font=("Segoe UI", 20, "bold"),
-                 bg="#0b1020", fg="#e7eaf2").pack(anchor="w", padx=20, pady=(18, 3))
+                 bg=BG, fg=FG).pack(anchor="w", padx=20, pady=(18, 3))
         tk.Label(window, text="Хранятся только на этом компьютере · Telegram не требуется",
-                 bg="#0b1020", fg="#98a6c4").pack(anchor="w", padx=20, pady=(0, 14))
-        tabs = ttk.Notebook(window)
+                 bg=BG, fg=MUTED).pack(anchor="w", padx=20, pady=(0, 14))
+        tabs = ttk.Notebook(window, style="Sherlock.TNotebook")
         tabs.pack(fill="both", expand=True, padx=18, pady=(0, 18))
-        self.task_frame = ttk.Frame(tabs)
-        self.note_frame = ttk.Frame(tabs)
+        self.task_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
+        self.note_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
         tabs.add(self.task_frame, text="Задачи")
         tabs.add(self.note_frame, text="Заметки")
         self.tasks = self._table(self.task_frame, ("Состояние", "Задача"), (100, 550))
@@ -31,11 +64,15 @@ class WorkspaceWindow:
                                          ("Удалить", self.delete_task)))
         self._controls(self.note_frame, (("Добавить заметку", self.add_note),
                                          ("Удалить", self.delete_note)))
+        self.status = tk.Label(window, text="", bg=BG, fg=MUTED,
+                               font=("Segoe UI", 9))
+        self.status.pack(anchor="w", padx=20, pady=(0, 9))
         self.refresh()
 
     @staticmethod
     def _table(parent, labels, widths):
-        tree = ttk.Treeview(parent, columns=labels, show="headings", selectmode="browse")
+        tree = ttk.Treeview(parent, columns=labels, show="headings", selectmode="browse",
+                            style="Sherlock.Treeview")
         for label, width in zip(labels, widths):
             tree.heading(label, text=label)
             tree.column(label, width=width, anchor="w")
@@ -44,18 +81,23 @@ class WorkspaceWindow:
 
     @staticmethod
     def _controls(parent, buttons):
-        frame = ttk.Frame(parent)
+        frame = ttk.Frame(parent, style="Sherlock.TFrame")
         frame.pack(fill="x", padx=10, pady=(0, 10))
         for text, command in buttons:
-            ttk.Button(frame, text=text, command=command).pack(side="left", padx=(0, 8))
+            ttk.Button(frame, text=text, command=command,
+                       style="Sherlock.TButton").pack(side="left", padx=(0, 8))
 
     def refresh(self):
         self.tasks.delete(*self.tasks.get_children())
-        for task_id, title, done in self.store.list_tasks():
+        tasks = self.store.list_tasks()
+        for task_id, title, done in tasks:
             self.tasks.insert("", "end", iid=str(task_id), values=("✓ Готово" if done else "○ В работе", title))
         self.notes.delete(*self.notes.get_children())
-        for note_id, content in self.store.list_notes():
+        notes = self.store.list_notes()
+        for note_id, content in notes:
             self.notes.insert("", "end", iid=str(note_id), values=(content,))
+        open_count = sum(not done for _, _, done in tasks)
+        self.status.configure(text=f"Открытых задач: {open_count} · Заметок: {len(notes)} · Изменения сохраняются автоматически")
 
     @staticmethod
     def _selected(table):
