@@ -40,9 +40,15 @@ def telegram_client_options(environ=None):
     # Lazy import: offline diagnostics can run without Telethon installed.
     from telethon import connection
 
+    # Randomized intermediate is intended for dd-prefixed secrets. For a
+    # conventional hex secret, use regular intermediate framing instead.
+    # A wrong packet codec can result in negative packet-length errors.
+    transport = (connection.ConnectionTcpMTProxyRandomizedIntermediate
+                 if secret.lower().startswith("dd")
+                 else connection.ConnectionTcpMTProxyIntermediate)
     options.update({
         "use_ipv6": False,
-        "connection": connection.ConnectionTcpMTProxyRandomizedIntermediate,
+        "connection": transport,
         "proxy": (host, port, secret),
     })
     return options
