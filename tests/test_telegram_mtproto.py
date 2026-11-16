@@ -21,7 +21,9 @@ class TelegramNetworkTests(unittest.TestCase):
 
     def test_mtproto_options(self):
         marker = object()
-        connection = types.SimpleNamespace(ConnectionTcpMTProxyRandomizedIntermediate=marker)
+        randomized = object()
+        connection = types.SimpleNamespace(ConnectionTcpMTProxyRandomizedIntermediate=randomized,
+                                           ConnectionTcpMTProxyIntermediate=marker)
         with patch.dict(sys.modules, {"telethon": types.SimpleNamespace(connection=connection)}):
             options = telegram_client_options({
                 "TELEGRAM_PROXY_TYPE": "mtproto",
@@ -33,6 +35,17 @@ class TelegramNetworkTests(unittest.TestCase):
         self.assertIs(options["connection"], marker)
         self.assertEqual(options["proxy"], ("proxy.example.org", 443, "test-local-secret"))
         self.assertFalse(options["use_ipv6"])
+
+    def test_dd_secret_selects_randomized_intermediate(self):
+        marker = object()
+        connection = types.SimpleNamespace(ConnectionTcpMTProxyRandomizedIntermediate=marker,
+                                           ConnectionTcpMTProxyIntermediate=object())
+        with patch.dict(sys.modules, {"telethon": types.SimpleNamespace(connection=connection)}):
+            options = telegram_client_options({"TELEGRAM_PROXY_TYPE": "mtproto",
+                                               "TELEGRAM_PROXY_HOST": "proxy.example.org",
+                                               "TELEGRAM_PROXY_PORT": "443",
+                                               "TELEGRAM_PROXY_SECRET": "dd" + "00" * 16})
+        self.assertIs(options["connection"], marker)
 
     def test_reject_bad_proxy_settings_without_revealing_secret(self):
         for change in ({"TELEGRAM_PROXY_PORT": "0"}, {"TELEGRAM_PROXY_PORT": "abc"},
