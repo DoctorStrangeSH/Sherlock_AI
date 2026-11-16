@@ -43,6 +43,29 @@ def delivery_hint(sent):
     return descriptions.get(kind, "способ не определён текущей версией программы")
 
 
+def authorization_error_message(exc):
+    """Return useful advice without ever including exception text or credentials."""
+    kind = type(exc).__name__
+    if kind == "PhoneCodeInvalidError":
+        return "❌ Код не подходит к текущему запросу. Старые коды Desktop/Web не используй."
+    if kind == "PhoneCodeExpiredError":
+        return "❌ Срок действия кода истёк. Не запрашивай новый код многократно подряд."
+    if kind in {"PhoneCodeEmptyError", "PhoneCodeHashEmptyError", "PhoneCodeHashInvalidError"}:
+        return "❌ Запрос кода недействителен. Следующую попытку делай позже."
+    if kind in {"SessionPasswordNeededError", "PasswordHashInvalidError"}:
+        return "❌ Требуется корректный пароль двухэтапной проверки Telegram."
+    if kind in {"FloodWaitError", "PhoneNumberFloodError", "PhonePasswordFloodError"}:
+        seconds = getattr(exc, "seconds", None)
+        wait = f" Подожди не менее {int(seconds)} секунд." if type(seconds) is int and 0 < seconds < 864000 else ""
+        return "❌ Telegram ограничил число попыток авторизации." + wait
+    if kind in {"IncompleteReadError", "ConnectionError", "ConnectionResetError", "TimeoutError",
+                "ServerClosedConnectionError", "InvalidBufferError"} or isinstance(exc, (ConnectionError, OSError, asyncio.TimeoutError, asyncio.IncompleteReadError)):
+        return "❌ Соединение разорвалось во время авторизации. Это не подтверждает ошибку кода."
+    if kind in {"ApiIdInvalidError", "ApiIdPublishedFloodError"}:
+        return "❌ Telegram отклонил API ID приложения. Проверь личные ключи на my.telegram.org."
+    return f"❌ Ошибка авторизации ({kind}). Секретные данные не выводятся."
+
+
 def ask_network_settings():
     print("Подключение: 1 — MTProto-прокси, 2 — напрямую через IPv6, 3 — напрямую через IPv4")
     choice = input("Выбери способ подключения [1]: ").strip() or "1"
@@ -149,8 +172,8 @@ def main():
     except KeyboardInterrupt:
         print("\nНастройка отменена. Секреты не сохранены.")
         return 130
-    except Exception:
-        print("❌ Ошибка авторизации. Проверь сеть и настройки; секреты не выводятся.")
+    except Exception as exc:
+        print(authorization_error_message(exc))
         return 1
 
 
