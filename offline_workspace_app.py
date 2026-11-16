@@ -38,20 +38,23 @@ def configure_dark_theme(window):
 
 
 class WorkspaceWindow:
-    def __init__(self, window, initial_tab=0):
+    def __init__(self, window, initial_tab=0, embedded=False):
         self.window = window
         self.store = OfflineWorkspace()
-        window.title("Sherlock AI — задачи и заметки")
-        window.geometry("760x510")
-        window.minsize(580, 400)
+        self.embedded = embedded
+        if not embedded:
+            window.title("Sherlock AI — задачи и заметки")
+            window.geometry("760x510")
+            window.minsize(580, 400)
+            window.protocol("WM_DELETE_WINDOW", self.close)
         window.configure(bg=BG)
-        window.protocol("WM_DELETE_WINDOW", self.close)
         configure_dark_theme(window)
         tk.Label(window, text="Задачи и заметки", font=("Segoe UI", 20, "bold"),
                  bg=BG, fg=FG).pack(anchor="w", padx=20, pady=(18, 3))
         tk.Label(window, text="Хранятся только на этом компьютере · Telegram не требуется",
                  bg=BG, fg=MUTED).pack(anchor="w", padx=20, pady=(0, 14))
         tabs = ttk.Notebook(window, style="Sherlock.TNotebook")
+        self.tabs = tabs
         tabs.pack(fill="both", expand=True, padx=18, pady=(0, 18))
         self.task_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
         self.note_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
@@ -141,9 +144,14 @@ class WorkspaceWindow:
             self.store.delete_note(note_id)
             self.refresh()
 
+    def select_tab(self, index):
+        self.tabs.select(1 if index == 1 else 0)
+        self.refresh()
+
     def close(self):
         self.store.close()
-        self.window.destroy()
+        if not self.embedded:
+            self.window.destroy()
 
 
 def open_workspace(parent, initial_tab=0):
