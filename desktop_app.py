@@ -9,11 +9,12 @@ import queue
 import sqlite3
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from tkinter.scrolledtext import ScrolledText
 
 from offline_workspace_app import WorkspaceWindow
 from offline_workspace import OfflineWorkspace
+from memory_suggestions import proposed_memory
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -217,6 +218,28 @@ class SherlockDesktop:
             return
         self.input.delete("1.0", "end")
         self.append("Ты", question, "user")
+        if question.lower().lstrip().startswith("запомни"):
+            fact = proposed_memory(question)
+            if fact is None:
+                self.append("Sherlock AI",
+                            "Не сохранил. Напиши «Запомни, что ...» без паролей, кодов и других секретов (до 500 символов).",
+                            "assistant")
+                return
+            if not messagebox.askyesno("Сохранить в память?",
+                                        f"Сохранить этот факт только на компьютере?\\n\\n{fact}",
+                                        parent=self.root):
+                self.append("Sherlock AI", "Хорошо, ничего не сохраняю.", "assistant")
+                return
+            try:
+                with OfflineWorkspace() as workspace:
+                    workspace.add_memory(fact)
+                if self.workspace_panel is not None:
+                    self.workspace_panel.refresh()
+                self.append("Sherlock AI", "Сохранил в память. Это можно изменить или удалить в разделе «Память».",
+                            "assistant")
+            except (OSError, sqlite3.Error, ValueError):
+                self.append("Sherlock AI", "Не удалось сохранить факт в локальной памяти.", "assistant")
+            return
         history = self.session.snapshot()
         try:
             with OfflineWorkspace() as workspace:
