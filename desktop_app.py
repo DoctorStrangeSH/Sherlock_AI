@@ -9,12 +9,13 @@ import queue
 import sqlite3
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
 
 from offline_workspace_app import WorkspaceWindow
 from offline_workspace import OfflineWorkspace
 from memory_suggestions import proposed_memory
+from local_file_preview import preview_text_file
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -64,7 +65,7 @@ class SherlockDesktop:
         tk.Label(navigation, text="РАЗДЕЛЫ", bg="#10182a", fg=MUTED,
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(2, 12))
         self.nav_buttons = {}
-        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory"), ("▤ История", "history"), ("⚙ Настройки", "settings")):
+        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory"), ("▤ История", "history"), ("⌕ Инструменты", "tools"), ("⚙ Настройки", "settings")):
             button = tk.Button(navigation, text=label, command=lambda page=target: self.show_page(page),
                                bg=INPUT if target == "chat" else "#10182a", fg=TEXT,
                                activebackground=INPUT, activeforeground=TEXT,
@@ -77,6 +78,22 @@ class SherlockDesktop:
         self.content_area.pack(side="left", fill="both", expand=True)
         self.chat_page = tk.Frame(self.content_area, bg=BACKGROUND)
         self.chat_page.pack(fill="both", expand=True)
+        self.tools_page = tk.Frame(self.content_area, bg=BACKGROUND)
+        tk.Label(self.tools_page, text="Локальные инструменты", bg=BACKGROUND, fg=TEXT,
+                 font=("Segoe UI", 19, "bold")).pack(anchor="w", padx=24, pady=(22, 7))
+        tk.Label(self.tools_page, text="Предпросмотр выбранного тобой текстового файла. Только чтение; без отправки в ИИ.",
+                 bg=BACKGROUND, fg=MUTED, wraplength=500, justify="left").pack(anchor="w", padx=24, pady=(0, 12))
+        tk.Button(self.tools_page, text="Выбрать файл…", command=self.open_local_file,
+                  bg=INPUT, fg=TEXT, activebackground=SURFACE,
+                  relief="flat", padx=14, pady=8).pack(anchor="w", padx=24)
+        self.file_details = tk.Label(self.tools_page, text="Файл не выбран", bg=BACKGROUND, fg=MUTED,
+                                     wraplength=520, justify="left")
+        self.file_details.pack(anchor="w", padx=24, pady=(12, 6))
+        self.file_preview = ScrolledText(self.tools_page, wrap="word", bg=SURFACE, fg=TEXT,
+                                         font=("Consolas", 10), state="disabled", relief="flat",
+                                         padx=12, pady=10)
+        self.file_preview.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+
         self.settings_page = tk.Frame(self.content_area, bg=BACKGROUND)
         tk.Label(self.settings_page, text="Настройки помощника", bg=BACKGROUND, fg=TEXT,
                  font=("Segoe UI", 19, "bold")).pack(anchor="w", padx=24, pady=(26, 8))
@@ -153,11 +170,33 @@ class SherlockDesktop:
         threading.Thread(target=self.check_model, daemon=True).start()
         self.input.focus_set()
 
+    def open_local_file(self) -> None:
+        path = filedialog.askopenfilename(parent=self.root, title="Выбрать текстовый файл",
+                                         filetypes=[("Текстовые файлы", "*.txt *.md *.json *.csv *.tsv *.log *.py *.yaml *.yml *.ini *.toml"),
+                                                    ("Все файлы", "*.*")])
+        if not path:
+            return
+        try:
+            preview = preview_text_file(path)
+            details = "{} · {} байт".format(preview["name"], preview["size"])
+            if preview["truncated"]:
+                details += " · показано только начало файла"
+            content = preview["content"]
+        except (OSError, ValueError) as exc:
+            details = "Не удалось открыть файл: " + str(exc)
+            content = ""
+        self.file_details.configure(text=details)
+        self.file_preview.configure(state="normal")
+        self.file_preview.delete("1.0", "end")
+        self.file_preview.insert("1.0", content)
+        self.file_preview.configure(state="disabled")
+
     def show_page(self, page: str) -> None:
         for name, button in self.nav_buttons.items():
             button.configure(bg=INPUT if name == page else "#10182a")
         self.chat_page.pack_forget()
         self.settings_page.pack_forget()
+        self.tools_page.pack_forget()
         if self.workspace_panel is not None:
             self.workspace_panel.window.pack_forget()
         if page == "chat":
@@ -165,6 +204,9 @@ class SherlockDesktop:
             return
         if page == "settings":
             self.settings_page.pack(fill="both", expand=True)
+            return
+        if page == "tools":
+            self.tools_page.pack(fill="both", expand=True)
             return
         if self.workspace_panel is None:
             workspace_frame = tk.Frame(self.content_area, bg=BACKGROUND)
