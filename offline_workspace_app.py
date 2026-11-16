@@ -43,13 +43,13 @@ class WorkspaceWindow:
         self.store = OfflineWorkspace()
         self.embedded = embedded
         if not embedded:
-            window.title("Sherlock AI — задачи и заметки")
+            window.title("Sherlock AI — личное пространство")
             window.geometry("760x510")
             window.minsize(580, 400)
             window.protocol("WM_DELETE_WINDOW", self.close)
         window.configure(bg=BG)
         configure_dark_theme(window)
-        tk.Label(window, text="Задачи и заметки", font=("Segoe UI", 20, "bold"),
+        tk.Label(window, text="Личное пространство", font=("Segoe UI", 20, "bold"),
                  bg=BG, fg=FG).pack(anchor="w", padx=20, pady=(18, 3))
         tk.Label(window, text="Хранятся только на этом компьютере · Telegram не требуется",
                  bg=BG, fg=MUTED).pack(anchor="w", padx=20, pady=(0, 14))
@@ -58,11 +58,14 @@ class WorkspaceWindow:
         tabs.pack(fill="both", expand=True, padx=18, pady=(0, 18))
         self.task_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
         self.note_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
+        self.memory_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
         tabs.add(self.task_frame, text="Задачи")
         tabs.add(self.note_frame, text="Заметки")
-        tabs.select(1 if initial_tab == 1 else 0)
+        tabs.add(self.memory_frame, text="Память")
+        tabs.select(initial_tab if initial_tab in (0, 1, 2) else 0)
         self.tasks = self._table(self.task_frame, ("Состояние", "Задача"), (100, 550))
         self.notes = self._table(self.note_frame, ("Заметка",), (650,))
+        self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
         self._controls(self.task_frame, (("Добавить задачу", self.add_task),
                                          ("Выполнено", self.complete_task),
                                          ("Удалить", self.delete_task)))
@@ -79,6 +82,20 @@ class WorkspaceWindow:
                                    font=("Segoe UI", 10), padx=12, pady=9)
         self.note_editor.pack(fill="x", padx=18, pady=(0, 10))
         self.notes.bind("<Double-1>", lambda _event: self.edit_note())
+        self._controls(self.memory_frame, (("Новый факт", self.new_memory),
+                                          ("Изменить", self.edit_memory),
+                                          ("Сохранить", self.save_memory),
+                                          ("Удалить", self.delete_memory)))
+        self.editing_memory_id = None
+        self.memory_hint = tk.Label(self.memory_frame,
+                                    text="Память сохраняется только по твоему решению · до 500 символов",
+                                    bg=BG, fg=MUTED, anchor="w")
+        self.memory_hint.pack(fill="x", padx=18, pady=(0, 5))
+        self.memory_editor = tk.Text(self.memory_frame, height=4, bg=INPUT, fg=FG,
+                                     insertbackground=FG, wrap="word", relief="flat",
+                                     font=("Segoe UI", 10), padx=12, pady=9)
+        self.memory_editor.pack(fill="x", padx=18, pady=(0, 10))
+        self.memories.bind("<Double-1>", lambda _event: self.edit_memory())
         self.status = tk.Label(window, text="", bg=BG, fg=MUTED,
                                font=("Segoe UI", 9))
         self.status.pack(anchor="w", padx=20, pady=(0, 9))
@@ -111,8 +128,12 @@ class WorkspaceWindow:
         notes = self.store.list_notes()
         for note_id, content in notes:
             self.notes.insert("", "end", iid=str(note_id), values=(content,))
+        self.memories.delete(*self.memories.get_children())
+        memories = self.store.list_memories()
+        for memory_id, content in memories:
+            self.memories.insert("", "end", iid=str(memory_id), values=(content,))
         open_count = sum(not done for _, _, done in tasks)
-        self.status.configure(text=f"Открытых задач: {open_count} · Заметок: {len(notes)} · Изменения сохраняются автоматически")
+        self.status.configure(text=f"Открытых задач: {open_count} · Заметок: {len(notes)} · Фактов памяти: {len(memories)}")
 
     @staticmethod
     def _selected(table):
@@ -179,8 +200,49 @@ class WorkspaceWindow:
                 self.add_note()
             self.refresh()
 
+    def new_memory(self):
+        self.editing_memory_id = None
+        self.memory_editor.delete("1.0", "end")
+        self.memory_hint.configure(text="Новый факт · сохраняется только после нажатия «Сохранить»")
+        self.memory_editor.focus_set()
+
+    def edit_memory(self):
+        memory_id = self._selected(self.memories)
+        if memory_id is None:
+            self.status.configure(text="Выбери факт памяти.")
+            return
+        values = self.memories.item(str(memory_id), "values")
+        self.editing_memory_id = memory_id
+        self.memory_editor.delete("1.0", "end")
+        self.memory_editor.insert("1.0", values[0] if values else "")
+        self.memory_hint.configure(text=f"Редактирование факта №{memory_id}")
+        self.memory_editor.focus_set()
+
+    def save_memory(self):
+        content = self.memory_editor.get("1.0", "end-1c")
+        try:
+            if self.editing_memory_id is None:
+                self.store.add_memory(content)
+            elif not self.store.update_memory(self.editing_memory_id, content):
+                self.status.configure(text="Факт уже удалён.")
+                return
+            self.new_memory()
+            self.refresh()
+        except ValueError as exc:
+            messagebox.showwarning("Проверь текст", str(exc), parent=self.window)
+
+    def delete_memory(self):
+        memory_id = self._selected(self.memories)
+        if memory_id is not None and messagebox.askyesno(
+                "Удалить память?", "Навсегда удалить выбранный факт?",
+                parent=self.window):
+            self.store.delete_memory(memory_id)
+            if self.editing_memory_id == memory_id:
+                self.new_memory()
+            self.refresh()
+
     def select_tab(self, index):
-        self.tabs.select(1 if index == 1 else 0)
+        self.tabs.select(index if index in (0, 1, 2) else 0)
         self.refresh()
 
     def close(self):
