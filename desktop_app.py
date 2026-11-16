@@ -16,6 +16,7 @@ from offline_workspace_app import WorkspaceWindow
 from offline_workspace import OfflineWorkspace
 from memory_suggestions import proposed_memory
 from local_file_preview import preview_text_file
+from local_document_analysis import build_document_prompt, MAX_ANALYSIS_CHARS
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -38,6 +39,8 @@ class SherlockDesktop:
         self.closed = False
         self.workspace_panel = None
         self.full_history = []
+        self.selected_file_excerpt = ""
+        self.selected_file_name = ""
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.model_choice = tk.StringVar(value=self.load_model_choice())
         self.performance = tk.StringVar(value=self.load_performance())
@@ -81,11 +84,15 @@ class SherlockDesktop:
         self.tools_page = tk.Frame(self.content_area, bg=BACKGROUND)
         tk.Label(self.tools_page, text="Локальные инструменты", bg=BACKGROUND, fg=TEXT,
                  font=("Segoe UI", 19, "bold")).pack(anchor="w", padx=24, pady=(22, 7))
-        tk.Label(self.tools_page, text="Предпросмотр выбранного тобой текстового файла. Только чтение; без отправки в ИИ.",
+        tk.Label(self.tools_page, text="Просматривай файлы локально. Анализ с ИИ запускается отдельно, только после подтверждения.",
                  bg=BACKGROUND, fg=MUTED, wraplength=500, justify="left").pack(anchor="w", padx=24, pady=(0, 12))
         tk.Button(self.tools_page, text="Выбрать файл…", command=self.open_local_file,
                   bg=INPUT, fg=TEXT, activebackground=SURFACE,
                   relief="flat", padx=14, pady=8).pack(anchor="w", padx=24)
+        self.analyze_file_button = tk.Button(self.tools_page, text="Проанализировать с ИИ", command=self.analyze_local_file,
+                                             bg=ACCENT, fg=BACKGROUND, activebackground="#a8b6ff",
+                                             relief="flat", padx=14, pady=8, state="disabled")
+        self.analyze_file_button.pack(anchor="w", padx=24, pady=(9, 0))
         self.file_details = tk.Label(self.tools_page, text="Файл не выбран", bg=BACKGROUND, fg=MUTED,
                                      wraplength=520, justify="left")
         self.file_details.pack(anchor="w", padx=24, pady=(12, 6))
@@ -182,7 +189,13 @@ class SherlockDesktop:
             if preview["truncated"]:
                 details += " · показано только начало файла"
             content = preview["content"]
+            self.selected_file_name = preview["name"]
+            self.selected_file_excerpt = content
+            self.analyze_file_button.configure(state="normal" if content.strip() else "disabled")
         except (OSError, ValueError) as exc:
+            self.selected_file_name = ""
+            self.selected_file_excerpt = ""
+            self.analyze_file_button.configure(state="disabled")
             details = "Не удалось открыть файл: " + str(exc)
             content = ""
         self.file_details.configure(text=details)
@@ -190,6 +203,32 @@ class SherlockDesktop:
         self.file_preview.delete("1.0", "end")
         self.file_preview.insert("1.0", content)
         self.file_preview.configure(state="disabled")
+
+    def analyze_local_file(self) -> None:
+        if self.busy or self.closed:
+            messagebox.showinfo("Sherlock AI занят", "Дождись завершения текущего ответа.", parent=self.root)
+            return
+        if not self.selected_file_excerpt.strip():
+            return
+        if self.input.get("1.0", "end-1c").strip():
+            messagebox.showinfo("Несохранённый черновик",
+                                "В чате уже есть черновик. Отправь или удали его перед анализом файла.",
+                                parent=self.root)
+            return
+        prompt, sent_chars = build_document_prompt(self.selected_file_name, self.selected_file_excerpt)
+        confirmed = messagebox.askyesno(
+            "Передать фрагмент локальной модели?",
+            "Файл: {}\n\nВ локальную Ollama будет передано до {} символов из выбранного файла "
+            "(сейчас: {}).\n\nТекст будет виден в чате и войдёт в историю текущего диалога. "
+            "Он не сохраняется на диск автоматически. Продолжить?".format(
+                self.selected_file_name, MAX_ANALYSIS_CHARS, sent_chars),
+            parent=self.root,
+        )
+        if not confirmed:
+            return
+        self.show_page("chat")
+        self.input.insert("1.0", prompt)
+        self.send()
 
     def show_page(self, page: str) -> None:
         for name, button in self.nav_buttons.items():
