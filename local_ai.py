@@ -14,16 +14,21 @@ from personality import build_system_prompt
 from model_selection import choose_model
 
 @lru_cache(maxsize=1)
-def selected_model():
-    """Reads Ollama's locally installed models once per process."""
+def installed_models():
+    """Return names of models already installed on this computer."""
     req = urllib.request.Request(OLLAMA_URL.rstrip("/") + "/api/tags", method="GET")
     with urllib.request.urlopen(req, timeout=5) as response:
         data = json.load(response)
-    names = [item.get("name", "") for item in data.get("models", [])]
-    return choose_model(names, OLLAMA_MODEL)
+    return [item.get("name", "") for item in data.get("models", []) if item.get("name")]
 
 
-def _request(question: str, history=None, facts=None, tone="warm", tasks=None) -> str:
+@lru_cache(maxsize=1)
+def selected_model():
+    """Reads Ollama's locally installed models once per process."""
+    return choose_model(installed_models(), OLLAMA_MODEL)
+
+
+def _request(question: str, history=None, facts=None, tone="warm", tasks=None, model=None) -> str:
     safe_history = [m for m in (history or [])[-12:] if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
     notes = [str(fact)[:500] for fact in (facts or [])[:50]]
     note_context = (
@@ -38,7 +43,7 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None) -
         + "\n".join(f"- {task}" for task in open_tasks)
     ) if open_tasks else ""
     payload = json.dumps({
-        "model": selected_model(),
+        "model": model or selected_model(),
         "stream": False,
         "think": False,  # Qwen3: return visible answer instead of spending tokens on reasoning.
         "messages": [{"role": "system", "content": build_system_prompt(tone)}]
@@ -57,13 +62,13 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None) -
         data = json.load(response)
     return data.get("message", {}).get("content", "").strip() or "Модель вернула пустой ответ."
 
-async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tasks=None) -> str:
+async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tasks=None, model=None) -> str:
     if not question.strip():
         return "Напиши вопрос после .ask"
     if len(question) > 4000:
         return "Слишком длинный запрос (максимум 4000 символов)."
     try:
-        return await asyncio.to_thread(_request, question, history, facts, tone, tasks)
+        return await asyncio.to_thread(_request, question, history, facts, tone, tasks, model)
     except ValueError as exc:
         return "Локальная модель недоступна. " + str(exc)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
