@@ -34,6 +34,7 @@ class SherlockDesktop:
         self.closed = False
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.model_choice = tk.StringVar(value=self.load_model_choice())
+        self.performance = tk.StringVar(value=self.load_performance())
         root.title("Sherlock AI — личный помощник")
         root.geometry("920x640")
         root.minsize(620, 480)
@@ -77,6 +78,17 @@ class SherlockDesktop:
         picker.pack(side="right")
         tk.Label(settings, text="Стиль общения:", bg=BACKGROUND, fg=MUTED).pack(
             side="right", padx=(0, 8))
+
+        performance_bar = tk.Frame(root, bg=BACKGROUND, padx=24)
+        performance_bar.pack(fill="x", pady=(9, 0))
+        tk.Label(performance_bar, text="Скорость:", bg=BACKGROUND, fg=MUTED).pack(side="left")
+        self.performance_picker = ttk.Combobox(performance_bar, textvariable=self.performance,
+                                                values=["Быстро", "Баланс", "Качество"],
+                                                width=12, state="readonly", style="Sherlock.TCombobox")
+        self.performance_picker.pack(side="left", padx=(8, 12))
+        self.performance_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
+        tk.Label(performance_bar, text="Быстро — короче ответы; Качество — подробней, но медленнее",
+                 bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
 
         self.chat = ScrolledText(root, height=8, wrap="word", bg=SURFACE, fg=TEXT,
                                  insertbackground=TEXT, font=("Segoe UI", 11),
@@ -128,10 +140,17 @@ class SherlockDesktop:
         except (OSError, ValueError, TypeError):
             return "Авто"
 
+    def load_performance(self) -> str:
+        try:
+            value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("performance", "Быстро")
+            return value if value in ("Быстро", "Баланс", "Качество") else "Быстро"
+        except (OSError, ValueError, TypeError):
+            return "Быстро"
+
     def save_model_choice(self, event=None) -> None:
         try:
             self.model_config_path.parent.mkdir(parents=True, exist_ok=True)
-            self.model_config_path.write_text(json.dumps({"model": self.model_choice.get()}, ensure_ascii=False), encoding="utf-8")
+            self.model_config_path.write_text(json.dumps({"model": self.model_choice.get(), "performance": self.performance.get()}, ensure_ascii=False), encoding="utf-8")
         except OSError:
             self.status.configure(text="Не удалось сохранить выбор модели.")
 
@@ -165,13 +184,13 @@ class SherlockDesktop:
         question = self.input.get("1.0", "end-1c").strip()
         if not question:
             return
-        self.input.delete("1.0", "end")
-        self.append("Ты", question, "user")
-        history = self.session.snapshot()
         model = self.model_choice.get()
         if model != "Авто" and model not in self.model_picker["values"]:
             self.status.configure(text="Выбранная модель не установлена на этом компьютере.")
             return
+        self.input.delete("1.0", "end")
+        self.append("Ты", question, "user")
+        history = self.session.snapshot()
         tone = TONES[self.tone.get()]
         self.busy = True
         self.stream_has_chunks = False
@@ -180,13 +199,14 @@ class SherlockDesktop:
         self.activity.configure(text="Sherlock AI формирует ответ · первый запуск модели может занять время", fg=ACCENT)
         self.send_button.configure(state="disabled")
         self.status.configure(text="Sherlock AI думает…")
-        threading.Thread(target=self.generate, args=(question, history, tone, None if model == "Авто" else model),
+        threading.Thread(target=self.generate, args=(question, history, tone, None if model == "Авто" else model, self.performance.get()),
                          daemon=True).start()
 
-    def generate(self, question: str, history: list, tone: str, model: str | None) -> None:
+    def generate(self, question: str, history: list, tone: str, model: str | None, performance: str) -> None:
         try:
             answer = asyncio.run(ask_local_ai(question, history=history, tone=tone, model=model,
-                                              on_chunk=lambda chunk: self.events.put(("chunk", chunk))))
+                                              on_chunk=lambda chunk: self.events.put(("chunk", chunk)),
+                                              performance=performance))
         except Exception:
             answer = "Не удалось получить ответ. Проверь подключение к Ollama."
         self.events.put(("answer", question, answer))
@@ -212,7 +232,9 @@ class SherlockDesktop:
                         self.save_model_choice()
             elif event[0] == "answer":
                 _, question, answer = event
-                if not self.stream_has_chunks:
+                if not self.stream_has_chunks or answer.startswith(("Ошибка генерации", "Локальная модель недоступна", "Не удалось получить ответ")):
+                    if self.stream_has_chunks:
+                        self.append_stream_chunk("\n[Ответ прервался] ")
                     self.append_stream_chunk(answer)
                 self.append_stream_chunk("\n\n")
                 self.session.record(question, answer)
