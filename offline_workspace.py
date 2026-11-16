@@ -30,6 +30,11 @@ class OfflineWorkspace:
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
         """)
 
     @staticmethod
@@ -72,6 +77,24 @@ class OfflineWorkspace:
     def delete_note(self, note_id):
         with self.conn:
             return self.conn.execute("DELETE FROM notes WHERE id = ?", (note_id,)).rowcount > 0
+
+    def add_memory(self, content):
+        content = self._clean(content, 500)
+        with self.conn:
+            return self.conn.execute("INSERT INTO memories (content) VALUES (?)", (content,)).lastrowid
+
+    def list_memories(self):
+        return self.conn.execute("SELECT id, content FROM memories ORDER BY id DESC").fetchall()
+
+    def update_memory(self, memory_id, content):
+        content = self._clean(content, 500)
+        with self.conn:
+            return self.conn.execute("UPDATE memories SET content = ? WHERE id = ?",
+                                     (content, memory_id)).rowcount > 0
+
+    def delete_memory(self, memory_id):
+        with self.conn:
+            return self.conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,)).rowcount > 0
 
     def close(self):
         self.conn.close()
