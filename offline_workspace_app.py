@@ -38,10 +38,11 @@ def configure_dark_theme(window):
 
 
 class WorkspaceWindow:
-    def __init__(self, window, initial_tab=0, embedded=False):
+    def __init__(self, window, initial_tab=0, embedded=False, on_open_conversation=None):
         self.window = window
         self.store = OfflineWorkspace()
         self.embedded = embedded
+        self.on_open_conversation = on_open_conversation
         if not embedded:
             window.title("Sherlock AI — личное пространство")
             window.geometry("760x510")
@@ -59,13 +60,16 @@ class WorkspaceWindow:
         self.task_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
         self.note_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
         self.memory_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
+        self.history_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
         tabs.add(self.task_frame, text="Задачи")
         tabs.add(self.note_frame, text="Заметки")
         tabs.add(self.memory_frame, text="Память")
-        tabs.select(initial_tab if initial_tab in (0, 1, 2) else 0)
+        tabs.add(self.history_frame, text="История")
+        tabs.select(initial_tab if initial_tab in (0, 1, 2, 3) else 0)
         self.tasks = self._table(self.task_frame, ("Состояние", "Задача"), (100, 550))
         self.notes = self._table(self.note_frame, ("Заметка",), (650,))
         self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
+        self.conversations = self._table(self.history_frame, ("Название", "Дата"), (450, 160))
         self._controls(self.task_frame, (("Добавить задачу", self.add_task),
                                          ("Выполнено", self.complete_task),
                                          ("Удалить", self.delete_task)))
@@ -96,6 +100,12 @@ class WorkspaceWindow:
                                      font=("Segoe UI", 10), padx=12, pady=9)
         self.memory_editor.pack(fill="x", padx=18, pady=(0, 10))
         self.memories.bind("<Double-1>", lambda _event: self.edit_memory())
+        self._controls(self.history_frame, (("Открыть", self.open_conversation),
+                                           ("Удалить", self.delete_conversation)))
+        tk.Label(self.history_frame,
+                 text="Сохраняются только диалоги, для которых ты нажал «Сохранить диалог».",
+                 bg=BG, fg=MUTED).pack(anchor="w", padx=18, pady=(0, 12))
+        self.conversations.bind("<Double-1>", lambda _event: self.open_conversation())
         self.status = tk.Label(window, text="", bg=BG, fg=MUTED,
                                font=("Segoe UI", 9))
         self.status.pack(anchor="w", padx=20, pady=(0, 9))
@@ -132,8 +142,12 @@ class WorkspaceWindow:
         memories = self.store.list_memories()
         for memory_id, content in memories:
             self.memories.insert("", "end", iid=str(memory_id), values=(content,))
+        self.conversations.delete(*self.conversations.get_children())
+        conversations = self.store.list_conversations()
+        for conversation_id, title, created_at in conversations:
+            self.conversations.insert("", "end", iid=str(conversation_id), values=(title, created_at))
         open_count = sum(not done for _, _, done in tasks)
-        self.status.configure(text=f"Открытых задач: {open_count} · Заметок: {len(notes)} · Фактов памяти: {len(memories)}")
+        self.status.configure(text=f"Открытых задач: {open_count} · Заметок: {len(notes)} · Фактов памяти: {len(memories)} · Диалогов: {len(conversations)}")
 
     @staticmethod
     def _selected(table):
@@ -241,8 +255,24 @@ class WorkspaceWindow:
                 self.new_memory()
             self.refresh()
 
+    def open_conversation(self):
+        conversation_id = self._selected(self.conversations)
+        if conversation_id is None or self.on_open_conversation is None:
+            return
+        messages = self.store.load_conversation(conversation_id)
+        if messages is not None:
+            self.on_open_conversation(messages)
+
+    def delete_conversation(self):
+        conversation_id = self._selected(self.conversations)
+        if conversation_id is not None and messagebox.askyesno(
+                "Удалить диалог?", "Удалить эту сохранённую копию диалога?",
+                parent=self.window):
+            self.store.delete_conversation(conversation_id)
+            self.refresh()
+
     def select_tab(self, index):
-        self.tabs.select(index if index in (0, 1, 2) else 0)
+        self.tabs.select(index if index in (0, 1, 2, 3) else 0)
         self.refresh()
 
     def close(self):
