@@ -18,6 +18,7 @@ from memory_suggestions import proposed_memory
 from local_file_preview import preview_text_file
 from local_document_analysis import build_document_prompt, MAX_ANALYSIS_CHARS
 from local_folder_search import search_text_folder
+from local_recent_files import recent_text_files, format_recent_file
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -113,6 +114,9 @@ class SherlockDesktop:
         self.search_button = tk.Button(search_bar, text="Найти", command=self.start_folder_search,
                                        bg=ACCENT, fg=BACKGROUND, relief="flat", padx=10)
         self.search_button.pack(side="left")
+        self.recent_button = tk.Button(search_bar, text="Недавние", command=self.start_recent_files,
+                                       bg=INPUT, fg=TEXT, relief="flat", padx=10)
+        self.recent_button.pack(side="left", padx=(8, 0))
         self.search_details = tk.Label(self.tools_page, text="Поиск: сначала выбери папку · без отправки в ИИ",
                                         bg=BACKGROUND, fg=MUTED, wraplength=520, justify="left")
         self.search_details.pack(anchor="w", padx=24)
@@ -268,9 +272,45 @@ class SherlockDesktop:
             return
         self.searching = True
         self.search_button.configure(state="disabled")
+        self.recent_button.configure(state="disabled")
         self.search_details.configure(text="Ищу в выбранной папке…")
         threading.Thread(target=self.search_folder_worker,
                          args=(self.search_folder, query), daemon=True).start()
+
+    def start_recent_files(self) -> None:
+        if self.searching or self.closed:
+            return
+        if not self.search_folder:
+            self.search_details.configure(text="Сначала выбери папку.")
+            return
+        self.searching = True
+        self.search_button.configure(state="disabled")
+        self.recent_button.configure(state="disabled")
+        self.search_details.configure(text="Проверяю даты изменения файлов…")
+        threading.Thread(target=self.recent_files_worker,
+                         args=(self.search_folder,), daemon=True).start()
+
+    def recent_files_worker(self, folder: str) -> None:
+        try:
+            result = recent_text_files(folder)
+            self.events.put(("recent_files", result, None))
+        except (OSError, ValueError) as exc:
+            self.events.put(("recent_files", None, str(exc)))
+
+    def display_recent_files(self, result, error) -> None:
+        self.searching = False
+        self.search_button.configure(state="normal")
+        self.recent_button.configure(state="normal")
+        if error:
+            self.search_details.configure(text="Ошибка просмотра: " + error)
+            return
+        self.search_details.configure(text="Недавно изменённые документы · проверено: {}{}".format(
+            result["checked"], " · достигнут лимит" if result["limit_reached"] else ""))
+        entries = [format_recent_file(item) for item in result["files"]]
+        self.search_results.configure(state="normal")
+        self.search_results.delete("1.0", "end")
+        self.search_results.insert("1.0", "\n\n".join(entries) if entries else "Текстовых файлов не найдено.")
+        self.search_results.configure(state="disabled")
 
     def search_folder_worker(self, folder: str, query: str) -> None:
         try:
@@ -282,6 +322,7 @@ class SherlockDesktop:
     def display_folder_search(self, result, error) -> None:
         self.searching = False
         self.search_button.configure(state="normal")
+        self.recent_button.configure(state="normal")
         if error:
             self.search_details.configure(text="Ошибка поиска: " + error)
             return
@@ -458,6 +499,8 @@ class SherlockDesktop:
                     if self.model_choice.get() not in models:
                         self.model_choice.set("Авто")
                         self.save_model_choice()
+            elif event[0] == "recent_files":
+                self.display_recent_files(event[1], event[2])
             elif event[0] == "folder_search":
                 self.display_folder_search(event[1], event[2])
             elif event[0] == "answer":
