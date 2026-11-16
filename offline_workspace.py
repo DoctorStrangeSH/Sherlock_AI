@@ -1,6 +1,7 @@
 """Local tasks and notes for the desktop assistant; no Telegram dependencies."""
 
 import os
+import json
 from pathlib import Path
 import sqlite3
 
@@ -33,6 +34,12 @@ class OfflineWorkspace:
             CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY,
                 content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS conversations (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                messages TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -95,6 +102,38 @@ class OfflineWorkspace:
     def delete_memory(self, memory_id):
         with self.conn:
             return self.conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,)).rowcount > 0
+
+    def save_conversation(self, title, messages):
+        title = self._clean(title, 100)
+        if not isinstance(messages, list) or not messages or len(messages) > 200:
+            raise ValueError("Диалог должен содержать от 1 до 200 сообщений")
+        safe = []
+        for message in messages:
+            if not isinstance(message, dict) or message.get("role") not in ("user", "assistant"):
+                raise ValueError("Недопустимый формат диалога")
+            content = message.get("content")
+            if not isinstance(content, str) or len(content) > 4000:
+                raise ValueError("Недопустимое сообщение")
+            safe.append({"role": message["role"], "content": content})
+        serialized = json.dumps(safe, ensure_ascii=False)
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO conversations (title, messages) VALUES (?, ?)",
+                (title, serialized)).lastrowid
+
+    def list_conversations(self):
+        return self.conn.execute(
+            "SELECT id, title, created_at FROM conversations ORDER BY id DESC").fetchall()
+
+    def load_conversation(self, conversation_id):
+        row = self.conn.execute(
+            "SELECT messages FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def delete_conversation(self, conversation_id):
+        with self.conn:
+            return self.conn.execute(
+                "DELETE FROM conversations WHERE id = ?", (conversation_id,)).rowcount > 0
 
     def close(self):
         self.conn.close()
