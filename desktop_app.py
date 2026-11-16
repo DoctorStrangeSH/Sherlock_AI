@@ -52,14 +52,26 @@ class SherlockDesktop:
                                  font=("Segoe UI", 9), fg="#98e7c9", bg=BACKGROUND)
         self.activity.pack(anchor="w", pady=(7, 0))
 
-        navigation = tk.Frame(root, bg=BACKGROUND, padx=24, pady=5)
-        navigation.pack(fill="x")
-        for label, target in (("💬 Общение", "chat"), ("✅ Задачи", "tasks"), ("📝 Заметки", "notes")):
-            tk.Button(navigation, text=label, command=lambda page=target: self.show_page(page),
-                      bg=SURFACE, fg=TEXT, activebackground=INPUT,
-                      relief="flat", padx=16, pady=7).pack(side="left", padx=(0, 8))
-
-        self.chat_page = tk.Frame(root, bg=BACKGROUND)
+        body = tk.Frame(root, bg=BACKGROUND)
+        body.pack(fill="both", expand=True)
+        navigation = tk.Frame(body, bg="#10182a", width=154, padx=10, pady=14)
+        navigation.pack(side="left", fill="y")
+        navigation.pack_propagate(False)
+        tk.Label(navigation, text="РАЗДЕЛЫ", bg="#10182a", fg=MUTED,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(2, 12))
+        self.nav_buttons = {}
+        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes")):
+            button = tk.Button(navigation, text=label, command=lambda page=target: self.show_page(page),
+                               bg=INPUT if target == "chat" else "#10182a", fg=TEXT,
+                               activebackground=INPUT, activeforeground=TEXT,
+                               relief="flat", padx=12, pady=11, anchor="w")
+            button.pack(fill="x", pady=(0, 6))
+            self.nav_buttons[target] = button
+        tk.Label(navigation, text="Локально · приватно", bg="#10182a", fg=MUTED,
+                 font=("Segoe UI", 8)).pack(side="bottom", pady=10)
+        self.content_area = tk.Frame(body, bg=BACKGROUND)
+        self.content_area.pack(side="left", fill="both", expand=True)
+        self.chat_page = tk.Frame(self.content_area, bg=BACKGROUND)
         self.chat_page.pack(fill="both", expand=True)
         settings = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24)
         settings.pack(fill="x")
@@ -77,11 +89,6 @@ class SherlockDesktop:
         style.map("Sherlock.TCombobox", fieldbackground=[("readonly", INPUT)],
                   foreground=[("readonly", TEXT)], selectbackground=[("readonly", INPUT)],
                   selectforeground=[("readonly", TEXT)])
-        picker = ttk.Combobox(settings, textvariable=self.tone, state="readonly",
-                              values=list(TONES), width=13, style="Sherlock.TCombobox")
-        picker.pack(side="right")
-        tk.Label(settings, text="Стиль общения:", bg=BACKGROUND, fg=MUTED).pack(
-            side="right", padx=(0, 8))
 
         performance_bar = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24)
         performance_bar.pack(fill="x", pady=(9, 0))
@@ -91,8 +98,10 @@ class SherlockDesktop:
                                                 width=12, state="readonly", style="Sherlock.TCombobox")
         self.performance_picker.pack(side="left", padx=(8, 12))
         self.performance_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
-        tk.Label(performance_bar, text="Быстро — короче ответы; Качество — подробней, но медленнее",
-                 bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
+        tk.Label(performance_bar, text="Стиль:", bg=BACKGROUND, fg=MUTED).pack(side="left")
+        picker = ttk.Combobox(performance_bar, textvariable=self.tone, state="readonly",
+                              values=list(TONES), width=11, style="Sherlock.TCombobox")
+        picker.pack(side="left", padx=(8, 0))
 
         self.chat = ScrolledText(self.chat_page, height=8, wrap="word", bg=SURFACE, fg=TEXT,
                                  insertbackground=TEXT, font=("Segoe UI", 11),
@@ -129,6 +138,8 @@ class SherlockDesktop:
         self.input.focus_set()
 
     def show_page(self, page: str) -> None:
+        for name, button in self.nav_buttons.items():
+            button.configure(bg=INPUT if name == page else "#10182a")
         if page == "chat":
             if self.workspace_panel is not None:
                 self.workspace_panel.window.pack_forget()
@@ -136,7 +147,7 @@ class SherlockDesktop:
             return
         self.chat_page.pack_forget()
         if self.workspace_panel is None:
-            workspace_frame = tk.Frame(self.root, bg=BACKGROUND)
+            workspace_frame = tk.Frame(self.content_area, bg=BACKGROUND)
             self.workspace_panel = WorkspaceWindow(workspace_frame, embedded=True)
         self.workspace_panel.select_tab(1 if page == "notes" else 0)
         self.workspace_panel.window.pack(fill="both", expand=True)
