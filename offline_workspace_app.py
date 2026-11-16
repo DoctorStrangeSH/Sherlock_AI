@@ -38,7 +38,7 @@ def configure_dark_theme(window):
 
 
 class WorkspaceWindow:
-    def __init__(self, window):
+    def __init__(self, window, initial_tab=0):
         self.window = window
         self.store = OfflineWorkspace()
         window.title("Sherlock AI — задачи и заметки")
@@ -57,6 +57,7 @@ class WorkspaceWindow:
         self.note_frame = ttk.Frame(tabs, style="Sherlock.TFrame")
         tabs.add(self.task_frame, text="Задачи")
         tabs.add(self.note_frame, text="Заметки")
+        tabs.select(1 if initial_tab == 1 else 0)
         self.tasks = self._table(self.task_frame, ("Состояние", "Задача"), (100, 550))
         self.notes = self._table(self.note_frame, ("Заметка",), (650,))
         self._controls(self.task_frame, (("Добавить задачу", self.add_task),
@@ -145,9 +146,9 @@ class WorkspaceWindow:
         self.window.destroy()
 
 
-def open_workspace(parent):
+def open_workspace(parent, initial_tab=0):
     child = tk.Toplevel(parent)
-    WorkspaceWindow(child)
+    WorkspaceWindow(child, initial_tab=initial_tab)
     return child
 
 
