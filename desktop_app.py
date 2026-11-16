@@ -36,6 +36,7 @@ class SherlockDesktop:
         self.busy = False
         self.closed = False
         self.workspace_panel = None
+        self.full_history = []
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.model_choice = tk.StringVar(value=self.load_model_choice())
         self.performance = tk.StringVar(value=self.load_performance())
@@ -63,7 +64,7 @@ class SherlockDesktop:
         tk.Label(navigation, text="РАЗДЕЛЫ", bg="#10182a", fg=MUTED,
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(2, 12))
         self.nav_buttons = {}
-        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory")):
+        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory"), ("▤ История", "history")):
             button = tk.Button(navigation, text=label, command=lambda page=target: self.show_page(page),
                                bg=INPUT if target == "chat" else "#10182a", fg=TEXT,
                                activebackground=INPUT, activeforeground=TEXT,
@@ -132,6 +133,9 @@ class SherlockDesktop:
         self.status = tk.Label(footer, text="Ctrl+Enter — отправить · История только в памяти окна",
                                bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9))
         self.status.pack(side="left")
+        tk.Button(footer, text="Сохранить диалог", command=self.save_conversation,
+                  bg=SURFACE, fg=TEXT, activebackground=INPUT,
+                  relief="flat", padx=10).pack(side="right", padx=(0, 8))
         tk.Button(footer, text="Очистить диалог", command=self.clear,
                   bg=BACKGROUND, fg=MUTED, activebackground=SURFACE,
                   relief="flat").pack(side="right")
@@ -151,8 +155,9 @@ class SherlockDesktop:
         self.chat_page.pack_forget()
         if self.workspace_panel is None:
             workspace_frame = tk.Frame(self.content_area, bg=BACKGROUND)
-            self.workspace_panel = WorkspaceWindow(workspace_frame, embedded=True)
-        self.workspace_panel.select_tab({"tasks": 0, "notes": 1, "memory": 2}.get(page, 0))
+            self.workspace_panel = WorkspaceWindow(workspace_frame, embedded=True,
+                                                  on_open_conversation=self.open_conversation)
+        self.workspace_panel.select_tab({"tasks": 0, "notes": 1, "memory": 2, "history": 3}.get(page, 0))
         self.workspace_panel.window.pack(fill="both", expand=True)
 
     def append(self, name: str, message: str, kind: str) -> None:
@@ -292,7 +297,10 @@ class SherlockDesktop:
                         self.append_stream_chunk("\n[Ответ прервался] ")
                     self.append_stream_chunk(answer)
                 self.append_stream_chunk("\n\n")
-                self.session.record(question, answer)
+                if self.session.record(question, answer):
+                    self.full_history.extend(({"role": "user", "content": question},
+                                              {"role": "assistant", "content": answer}))
+                    self.full_history = self.full_history[-200:]
                 self.busy = False
                 self.activity.configure(text="Готов к общению", fg="#98e7c9")
                 self.send_button.configure(state="normal")
@@ -302,11 +310,44 @@ class SherlockDesktop:
             self.activity.configure(text=f"Sherlock AI думает… {elapsed} с · ожидаем ответ локальной модели")
         self.root.after(100, self.poll)
 
+    def save_conversation(self) -> None:
+        if self.busy:
+            self.status.configure(text="Дождись завершения ответа перед сохранением.")
+            return
+        if not self.full_history:
+            self.status.configure(text="Пока нет завершённых сообщений для сохранения.")
+            return
+        title = next((m["content"][:70] for m in self.full_history if m["role"] == "user"), "Диалог")
+        try:
+            with OfflineWorkspace() as workspace:
+                workspace.save_conversation(title, self.full_history)
+            if self.workspace_panel is not None:
+                self.workspace_panel.refresh()
+            self.status.configure(text="Диалог сохранён локально · открыть можно в разделе «История»")
+        except (OSError, sqlite3.Error, ValueError):
+            self.status.configure(text="Не удалось сохранить диалог.")
+
+    def open_conversation(self, messages: list[dict[str, str]]) -> None:
+        if self.busy:
+            self.status.configure(text="Дождись ответа перед открытием другого диалога.")
+            return
+        self.full_history = [dict(item) for item in messages]
+        self.session.history = [dict(item) for item in messages[-12:]]
+        self.chat.configure(state="normal")
+        self.chat.delete("1.0", "end")
+        self.chat.configure(state="disabled")
+        for item in messages:
+            self.append("Ты" if item["role"] == "user" else "Sherlock AI",
+                        item["content"], item["role"])
+        self.show_page("chat")
+        self.status.configure(text="Сохранённый диалог открыт · изменения не сохраняются автоматически")
+
     def clear(self) -> None:
         if self.busy:
             self.status.configure(text="Дождись ответа перед очисткой.")
             return
         self.session.clear()
+        self.full_history.clear()
         self.chat.configure(state="normal")
         self.chat.delete("1.0", "end")
         self.chat.configure(state="disabled")
