@@ -60,6 +60,12 @@ class OfflineWorkspace:
         with self.conn:
             return self.conn.execute("INSERT INTO notes (content) VALUES (?)", (content,)).lastrowid
 
+    def update_note(self, note_id, content):
+        content = self._clean(content, 1000)
+        with self.conn:
+            return self.conn.execute("UPDATE notes SET content = ? WHERE id = ?",
+                                     (content, note_id)).rowcount > 0
+
     def list_notes(self):
         return self.conn.execute("SELECT id, content FROM notes ORDER BY id DESC").fetchall()
 
