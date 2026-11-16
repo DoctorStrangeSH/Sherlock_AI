@@ -135,6 +135,18 @@ class SherlockDesktop:
         except OSError:
             self.status.configure(text="Не удалось сохранить выбор модели.")
 
+    def append_stream_start(self) -> None:
+        self.chat.configure(state="normal")
+        self.chat.insert("end", "Sherlock AI\n", "assistant")
+        self.chat.configure(state="disabled")
+        self.chat.see("end")
+
+    def append_stream_chunk(self, chunk: str) -> None:
+        self.chat.configure(state="normal")
+        self.chat.insert("end", chunk)
+        self.chat.configure(state="disabled")
+        self.chat.see("end")
+
     def check_model(self) -> None:
         try:
             result = selected_model()
@@ -162,6 +174,8 @@ class SherlockDesktop:
             return
         tone = TONES[self.tone.get()]
         self.busy = True
+        self.stream_has_chunks = False
+        self.append_stream_start()
         self.started_at = time.monotonic()
         self.activity.configure(text="Sherlock AI формирует ответ · первый запуск модели может занять время", fg=ACCENT)
         self.send_button.configure(state="disabled")
@@ -171,7 +185,8 @@ class SherlockDesktop:
 
     def generate(self, question: str, history: list, tone: str, model: str | None) -> None:
         try:
-            answer = asyncio.run(ask_local_ai(question, history=history, tone=tone, model=model))
+            answer = asyncio.run(ask_local_ai(question, history=history, tone=tone, model=model,
+                                              on_chunk=lambda chunk: self.events.put(("chunk", chunk))))
         except Exception:
             answer = "Не удалось получить ответ. Проверь подключение к Ollama."
         self.events.put(("answer", question, answer))
@@ -184,7 +199,10 @@ class SherlockDesktop:
                 event = self.events.get_nowait()
             except queue.Empty:
                 break
-            if event[0] == "model":
+            if event[0] == "chunk":
+                self.stream_has_chunks = True
+                self.append_stream_chunk(event[1])
+            elif event[0] == "model":
                 self.model_label.configure(text=event[1])
                 if len(event) > 2:
                     models = ["Авто"] + event[2]
@@ -194,7 +212,9 @@ class SherlockDesktop:
                         self.save_model_choice()
             elif event[0] == "answer":
                 _, question, answer = event
-                self.append("Sherlock AI", answer, "assistant")
+                if not self.stream_has_chunks:
+                    self.append_stream_chunk(answer)
+                self.append_stream_chunk("\n\n")
                 self.session.record(question, answer)
                 self.busy = False
                 self.activity.configure(text="Готов к общению", fg="#98e7c9")
