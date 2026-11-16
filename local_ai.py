@@ -28,7 +28,7 @@ def selected_model():
     return choose_model(installed_models(), OLLAMA_MODEL)
 
 
-def _request(question: str, history=None, facts=None, tone="warm", tasks=None, model=None) -> str:
+def _request(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None) -> str:
     safe_history = [m for m in (history or [])[-12:] if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
     notes = [str(fact)[:500] for fact in (facts or [])[:50]]
     note_context = (
@@ -44,7 +44,7 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None, m
     ) if open_tasks else ""
     payload = json.dumps({
         "model": model or selected_model(),
-        "stream": False,
+        "stream": on_chunk is not None,
         "think": False,  # Qwen3: return visible answer instead of spending tokens on reasoning.
         "messages": [{"role": "system", "content": build_system_prompt(tone)}]
         + ([{"role": "system", "content": note_context}] if note_context else [])
@@ -59,16 +59,31 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None, m
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=90) as response:
-        data = json.load(response)
-    return data.get("message", {}).get("content", "").strip() or "Модель вернула пустой ответ."
+        if on_chunk is None:
+            data = json.load(response)
+            return data.get("message", {}).get("content", "").strip() or "Модель вернула пустой ответ."
+        parts = []
+        for line in response:
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            if item.get("error"):
+                raise RuntimeError(str(item["error"]))
+            chunk = item.get("message", {}).get("content", "")
+            if chunk:
+                parts.append(chunk)
+                on_chunk(chunk)
+            if item.get("done"):
+                break
+        return "".join(parts).strip() or "Модель вернула пустой ответ."
 
-async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tasks=None, model=None) -> str:
+async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None) -> str:
     if not question.strip():
         return "Напиши вопрос после .ask"
     if len(question) > 4000:
         return "Слишком длинный запрос (максимум 4000 символов)."
     try:
-        return await asyncio.to_thread(_request, question, history, facts, tone, tasks, model)
+        return await asyncio.to_thread(_request, question, history, facts, tone, tasks, model, on_chunk)
     except ValueError as exc:
         return "Локальная модель недоступна. " + str(exc)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
