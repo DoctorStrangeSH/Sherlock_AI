@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import time
 import queue
+import sqlite3
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -220,7 +221,7 @@ class SherlockDesktop:
         try:
             with OfflineWorkspace() as workspace:
                 facts = [content for _id, content in workspace.list_memories()[:50]]
-        except OSError:
+        except (OSError, sqlite3.Error):
             facts = []
         tone = TONES[self.tone.get()]
         self.busy = True
