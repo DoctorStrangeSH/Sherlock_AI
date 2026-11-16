@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-from offline_workspace_app import open_workspace
+from offline_workspace_app import WorkspaceWindow
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -32,6 +32,7 @@ class SherlockDesktop:
         self.events = queue.Queue()
         self.busy = False
         self.closed = False
+        self.workspace_panel = None
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.model_choice = tk.StringVar(value=self.load_model_choice())
         self.performance = tk.StringVar(value=self.load_performance())
@@ -51,7 +52,16 @@ class SherlockDesktop:
                                  font=("Segoe UI", 9), fg="#98e7c9", bg=BACKGROUND)
         self.activity.pack(anchor="w", pady=(7, 0))
 
-        settings = tk.Frame(root, bg=BACKGROUND, padx=24)
+        navigation = tk.Frame(root, bg=BACKGROUND, padx=24, pady=5)
+        navigation.pack(fill="x")
+        for label, target in (("💬 Общение", "chat"), ("✅ Задачи", "tasks"), ("📝 Заметки", "notes")):
+            tk.Button(navigation, text=label, command=lambda page=target: self.show_page(page),
+                      bg=SURFACE, fg=TEXT, activebackground=INPUT,
+                      relief="flat", padx=16, pady=7).pack(side="left", padx=(0, 8))
+
+        self.chat_page = tk.Frame(root, bg=BACKGROUND)
+        self.chat_page.pack(fill="both", expand=True)
+        settings = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24)
         settings.pack(fill="x")
         self.model_label = tk.Label(settings, text="Модель: проверяется…",
                                     bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 10))
@@ -59,12 +69,6 @@ class SherlockDesktop:
         self.model_picker = ttk.Combobox(settings, textvariable=self.model_choice, width=16, state="readonly")
         self.model_picker.pack(side="left", padx=(9, 0))
         self.model_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
-        tk.Button(settings, text="Задачи", command=lambda: open_workspace(self.root, 0),
-                  bg=SURFACE, fg=TEXT, activebackground=INPUT,
-                  relief="flat", padx=12).pack(side="left", padx=(16, 5))
-        tk.Button(settings, text="Заметки", command=lambda: open_workspace(self.root, 1),
-                  bg=SURFACE, fg=TEXT, activebackground=INPUT,
-                  relief="flat", padx=12).pack(side="left", padx=(0, 5))
         self.tone = tk.StringVar(value="Тёплый")
         style = ttk.Style(root)
         style.theme_use("clam")
@@ -79,7 +83,7 @@ class SherlockDesktop:
         tk.Label(settings, text="Стиль общения:", bg=BACKGROUND, fg=MUTED).pack(
             side="right", padx=(0, 8))
 
-        performance_bar = tk.Frame(root, bg=BACKGROUND, padx=24)
+        performance_bar = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24)
         performance_bar.pack(fill="x", pady=(9, 0))
         tk.Label(performance_bar, text="Скорость:", bg=BACKGROUND, fg=MUTED).pack(side="left")
         self.performance_picker = ttk.Combobox(performance_bar, textvariable=self.performance,
@@ -90,7 +94,7 @@ class SherlockDesktop:
         tk.Label(performance_bar, text="Быстро — короче ответы; Качество — подробней, но медленнее",
                  bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
 
-        self.chat = ScrolledText(root, height=8, wrap="word", bg=SURFACE, fg=TEXT,
+        self.chat = ScrolledText(self.chat_page, height=8, wrap="word", bg=SURFACE, fg=TEXT,
                                  insertbackground=TEXT, font=("Segoe UI", 11),
                                  relief="flat", padx=18, pady=16, state="disabled",
                                  spacing2=5)
@@ -99,7 +103,7 @@ class SherlockDesktop:
         self.chat.tag_configure("assistant", foreground="#98e7c9", font=("Segoe UI", 11, "bold"))
         self.chat.tag_configure("system", foreground=MUTED)
 
-        composer = tk.Frame(root, bg=BACKGROUND, padx=24)
+        composer = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24)
         composer.pack(fill="x")
         self.input = tk.Text(composer, height=2, bg=INPUT, fg=TEXT,
                              insertbackground=TEXT, wrap="word", relief="flat",
@@ -111,14 +115,11 @@ class SherlockDesktop:
                                      relief="flat", padx=16, font=("Segoe UI", 10, "bold"))
         self.send_button.pack(side="right", padx=(10, 0), fill="y")
 
-        footer = tk.Frame(root, bg=BACKGROUND, padx=24, pady=12)
+        footer = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24, pady=12)
         footer.pack(fill="x")
         self.status = tk.Label(footer, text="Ctrl+Enter — отправить · История только в памяти окна",
                                bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9))
         self.status.pack(side="left")
-        tk.Button(footer, text="Задачи и заметки", command=lambda: open_workspace(self.root),
-                  bg=SURFACE, fg=TEXT, activebackground=INPUT,
-                  relief="flat", padx=12).pack(side="right", padx=(10, 0))
         tk.Button(footer, text="Очистить диалог", command=self.clear,
                   bg=BACKGROUND, fg=MUTED, activebackground=SURFACE,
                   relief="flat").pack(side="right")
@@ -126,6 +127,19 @@ class SherlockDesktop:
         self.root.after(100, self.poll)
         threading.Thread(target=self.check_model, daemon=True).start()
         self.input.focus_set()
+
+    def show_page(self, page: str) -> None:
+        if page == "chat":
+            if self.workspace_panel is not None:
+                self.workspace_panel.window.pack_forget()
+            self.chat_page.pack(fill="both", expand=True)
+            return
+        self.chat_page.pack_forget()
+        if self.workspace_panel is None:
+            workspace_frame = tk.Frame(self.root, bg=BACKGROUND)
+            self.workspace_panel = WorkspaceWindow(workspace_frame, embedded=True)
+        self.workspace_panel.select_tab(1 if page == "notes" else 0)
+        self.workspace_panel.window.pack(fill="both", expand=True)
 
     def append(self, name: str, message: str, kind: str) -> None:
         self.chat.configure(state="normal")
@@ -259,6 +273,8 @@ class SherlockDesktop:
 
     def close(self) -> None:
         self.closed = True
+        if self.workspace_panel is not None:
+            self.workspace_panel.close()
         self.root.destroy()
 
 
