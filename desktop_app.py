@@ -12,6 +12,7 @@ from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
 from offline_workspace_app import WorkspaceWindow
+from offline_workspace import OfflineWorkspace
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -60,7 +61,7 @@ class SherlockDesktop:
         tk.Label(navigation, text="РАЗДЕЛЫ", bg="#10182a", fg=MUTED,
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(2, 12))
         self.nav_buttons = {}
-        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes")):
+        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory")):
             button = tk.Button(navigation, text=label, command=lambda page=target: self.show_page(page),
                                bg=INPUT if target == "chat" else "#10182a", fg=TEXT,
                                activebackground=INPUT, activeforeground=TEXT,
@@ -149,7 +150,7 @@ class SherlockDesktop:
         if self.workspace_panel is None:
             workspace_frame = tk.Frame(self.content_area, bg=BACKGROUND)
             self.workspace_panel = WorkspaceWindow(workspace_frame, embedded=True)
-        self.workspace_panel.select_tab(1 if page == "notes" else 0)
+        self.workspace_panel.select_tab({"tasks": 0, "notes": 1, "memory": 2}.get(page, 0))
         self.workspace_panel.window.pack(fill="both", expand=True)
 
     def append(self, name: str, message: str, kind: str) -> None:
@@ -216,6 +217,11 @@ class SherlockDesktop:
         self.input.delete("1.0", "end")
         self.append("Ты", question, "user")
         history = self.session.snapshot()
+        try:
+            with OfflineWorkspace() as workspace:
+                facts = [content for _id, content in workspace.list_memories()[:50]]
+        except OSError:
+            facts = []
         tone = TONES[self.tone.get()]
         self.busy = True
         self.stream_has_chunks = False
@@ -224,12 +230,12 @@ class SherlockDesktop:
         self.activity.configure(text="Sherlock AI формирует ответ · первый запуск модели может занять время", fg=ACCENT)
         self.send_button.configure(state="disabled")
         self.status.configure(text="Sherlock AI думает…")
-        threading.Thread(target=self.generate, args=(question, history, tone, None if model == "Авто" else model, self.performance.get()),
+        threading.Thread(target=self.generate, args=(question, history, tone, None if model == "Авто" else model, self.performance.get(), facts),
                          daemon=True).start()
 
-    def generate(self, question: str, history: list, tone: str, model: str | None, performance: str) -> None:
+    def generate(self, question: str, history: list, tone: str, model: str | None, performance: str, facts: list[str]) -> None:
         try:
-            answer = asyncio.run(ask_local_ai(question, history=history, tone=tone, model=model,
+            answer = asyncio.run(ask_local_ai(question, history=history, tone=tone, model=model, facts=facts,
                                               on_chunk=lambda chunk: self.events.put(("chunk", chunk)),
                                               performance=performance))
         except Exception:
