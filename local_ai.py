@@ -40,11 +40,12 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None) -
     payload = json.dumps({
         "model": selected_model(),
         "stream": False,
+        "think": False,  # Qwen3: return visible answer instead of spending tokens on reasoning.
         "messages": [{"role": "system", "content": build_system_prompt(tone)}]
         + ([{"role": "system", "content": note_context}] if note_context else [])
         + ([{"role": "system", "content": task_context}] if task_context else [])
         + safe_history + [{"role": "user", "content": question}],
-        "options": {"num_predict": 500},
+        "options": {"num_predict": 320},
     }).encode("utf-8")
     req = urllib.request.Request(
         OLLAMA_URL.rstrip("/") + "/api/chat",
