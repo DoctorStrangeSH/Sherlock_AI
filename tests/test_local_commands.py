@@ -1,0 +1,26 @@
+"""Natural-language local command recognition."""
+import unittest
+from local_commands import parse_local_command
+
+
+class LocalCommandsTests(unittest.TestCase):
+    def test_search(self):
+        self.assertEqual(parse_local_command("Найди установку Ollama в выбранной папке"),
+                         ("search", "установку Ollama"))
+        self.assertEqual(parse_local_command("Поищи «отчёт» в этой папке!"),
+                         ("search", "отчёт"))
+
+    def test_recent(self):
+        self.assertEqual(parse_local_command("Покажи недавние файлы"), ("recent", ""))
+        self.assertEqual(parse_local_command("Выведи последние документы в этой папке"),
+                         ("recent", ""))
+
+    def test_ordinary_chat_is_not_command(self):
+        for question in ("Найди смысл жизни", "Как найти документ?",
+                         "Удалить все файлы", "покажи последние новости",
+                         "найди X в папке C:\\"):
+            self.assertIsNone(parse_local_command(question))
+
+
+if __name__ == "__main__":
+    unittest.main()
