@@ -226,7 +226,7 @@ class SherlockDesktop:
                             "assistant")
                 return
             if not messagebox.askyesno("Сохранить в память?",
-                                        f"Сохранить этот факт только на компьютере?\\n\\n{fact}",
+                                        f"Сохранить этот факт только на компьютере?\n\n{fact}",
                                         parent=self.root):
                 self.append("Sherlock AI", "Хорошо, ничего не сохраняю.", "assistant")
                 return
