@@ -84,7 +84,12 @@ async def authorize():
         return 1
 
     print("Создаём отдельную локальную сессию личного аккаунта. Коды и секреты не публикуются.")
-    async with TelegramClient(StringSession(), api_id, api_hash, **telegram_client_options(network)) as client:
+    # IMPORTANT: `async with TelegramClient(...)` implicitly calls start(),
+    # which triggers Telethon's own login prompt before our delivery diagnostics.
+    # Explicit connect() performs only the transport handshake.
+    client = TelegramClient(StringSession(), api_id, api_hash, **telegram_client_options(network))
+    await client.connect()
+    try:
         phone = input("Номер телефона (+...): ").strip()
         if not phone.startswith("+") or not phone[1:].isdigit():
             print("Номер должен быть в международном формате, например +7...")
@@ -129,6 +134,8 @@ async def authorize():
         except FileExistsError:
             print(".env уже создан другим процессом. Ничего не перезаписано.")
             return 1
+    finally:
+        await client.disconnect()
     print("✅ Секреты сохранены только в локальном .env (в .gitignore).")
     print("Не пересылай .env. Проверка: python run_local.py telegram_check.py")
     if not group_id:
