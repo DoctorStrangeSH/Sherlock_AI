@@ -13,6 +13,12 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 from personality import build_system_prompt
 from model_selection import choose_model
 
+PERFORMANCE_PROFILES = {
+    "Быстро": {"history": 6, "num_predict": 160, "num_ctx": 2048},
+    "Баланс": {"history": 12, "num_predict": 320, "num_ctx": 4096},
+    "Качество": {"history": 16, "num_predict": 600, "num_ctx": 8192},
+}
+
 @lru_cache(maxsize=1)
 def installed_models():
     """Return names of models already installed on this computer."""
@@ -28,8 +34,9 @@ def selected_model():
     return choose_model(installed_models(), OLLAMA_MODEL)
 
 
-def _request(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None) -> str:
-    safe_history = [m for m in (history or [])[-12:] if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
+def _request(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None, performance="Баланс") -> str:
+    profile = PERFORMANCE_PROFILES.get(performance, PERFORMANCE_PROFILES["Баланс"])
+    safe_history = [m for m in (history or [])[-profile["history"]:] if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
     notes = [str(fact)[:500] for fact in (facts or [])[:50]]
     note_context = (
         "Заметки, которые владелец явно попросил запомнить. "
@@ -50,7 +57,7 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None, m
         + ([{"role": "system", "content": note_context}] if note_context else [])
         + ([{"role": "system", "content": task_context}] if task_context else [])
         + safe_history + [{"role": "user", "content": question}],
-        "options": {"num_predict": 320},
+        "options": {"num_predict": profile["num_predict"], "num_ctx": profile["num_ctx"]},
     }).encode("utf-8")
     req = urllib.request.Request(
         OLLAMA_URL.rstrip("/") + "/api/chat",
@@ -77,13 +84,15 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None, m
                 break
         return "".join(parts).strip() or "Модель вернула пустой ответ."
 
-async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None) -> str:
+async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None, performance="Баланс") -> str:
     if not question.strip():
         return "Напиши вопрос после .ask"
     if len(question) > 4000:
         return "Слишком длинный запрос (максимум 4000 символов)."
     try:
-        return await asyncio.to_thread(_request, question, history, facts, tone, tasks, model, on_chunk)
+        return await asyncio.to_thread(_request, question, history, facts, tone, tasks, model, on_chunk, performance)
+    except RuntimeError as exc:
+        return "Ошибка генерации Ollama: " + str(exc)[:300]
     except ValueError as exc:
         return "Локальная модель недоступна. " + str(exc)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
