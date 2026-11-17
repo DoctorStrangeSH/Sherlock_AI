@@ -630,11 +630,13 @@ class SherlockDesktop:
                         week_count, week_seconds = workspace.focus_week_summary(date.today().isoformat())
                         recent_focus = workspace.recent_focus_sessions()
                         top_focus = workspace.top_focus_tasks(date.today().isoformat())
+                        focus_vs_estimate = workspace.focus_estimate_comparison(date.today().isoformat())
                     else:
                         focus_count, focus_seconds = 0, 0
                         week_count, week_seconds = 0, 0
                         recent_focus = []
                         top_focus = []
+                        focus_vs_estimate = []
                 now = datetime.now()
                 summary, status, tasks_text, timeline = build_day_overview(
                     tasks, saved, now=now)
@@ -672,13 +674,21 @@ class SherlockDesktop:
                     f"{'▰' * max(1, round(seconds * 12 / max_focus))}"
                     for task_id, title, sessions, seconds in top_focus
                 ) or "Пока нет сохранённых фокус-сессий за неделю."
+                estimate_lines = "\n".join(
+                    f"#{task_id} {title[:35]} · оценка {estimate} мин / "
+                    f"факт {actual // 60} мин · "
+                    f"{'+' if actual > estimate * 60 else '−' if actual < estimate * 60 else '='}"
+                    f"{abs(actual - estimate * 60) // 60} мин"
+                    for task_id, title, estimate, actual in focus_vs_estimate
+                ) or "Сегодня нет завершённых сессий по задачам с оценкой времени."
                 sections = ("СЕЙЧАС\n" + status +
                             "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
                             "\n\nВРЕМЕННАЯ ШКАЛА\n" + timeline +
                             "\n\nФОКУС ЗА 7 ДНЕЙ\n" +
                             f"{week_seconds // 3600} ч {(week_seconds % 3600) // 60} мин · "
                             f"сессий: {week_count}\n" +
-                            "\nТОП ЗАДАЧ ПО ВРЕМЕНИ (7 ДНЕЙ)\n" + top_lines +
+                            "\n\nПЛАН И ФАКТ ПО ЗАДАЧАМ СЕГОДНЯ\n" + estimate_lines +
+                            "\n\nТОП ЗАДАЧ ПО ВРЕМЕНИ (7 ДНЕЙ)\n" + top_lines +
                             "\n\nПОСЛЕДНИЕ СЕССИИ\n" + recent_lines)
             except (OSError, sqlite3.Error, ValueError):
                 self.day_summary.configure(text="Не удалось загрузить данные")
