@@ -178,6 +178,27 @@ class OfflineWorkspace:
             (first_day, ending_day),
         ).fetchone()
 
+    def top_focus_tasks(self, ending_day, limit=5):
+        """Most focused tasks over seven calendar days; keep one row per task ID."""
+        from datetime import timedelta
+        self._validate_task_meta("normal", ending_day)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
+            raise ValueError("Некорректное количество задач.")
+        first_day = (date.fromisoformat(ending_day) - timedelta(days=6)).isoformat()
+        return self.conn.execute(
+            "SELECT f.task_id, "
+            "(SELECT latest.title FROM focus_sessions AS latest "
+            " WHERE latest.task_id = f.task_id "
+            " AND latest.session_date BETWEEN ? AND ? "
+            " ORDER BY latest.id DESC LIMIT 1) AS title, "
+            "COUNT(*) AS session_count, SUM(f.duration_seconds) AS total_seconds "
+            "FROM focus_sessions AS f "
+            "WHERE f.session_date BETWEEN ? AND ? "
+            "GROUP BY f.task_id "
+            "ORDER BY total_seconds DESC, f.task_id ASC LIMIT ?",
+            (first_day, ending_day, first_day, ending_day, limit),
+        ).fetchall()
+
     def nonurgent_tasks_due(self, day):
         """Only open, non-high-priority tasks due exactly on the selected day."""
         self._validate_task_meta("normal", day)
