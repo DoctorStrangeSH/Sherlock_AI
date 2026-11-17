@@ -10,6 +10,12 @@ class LocalCommandsTests(unittest.TestCase):
         self.assertEqual(parse_local_command("Поищи «отчёт» в этой папке!"),
                          ("search", "отчёт"))
 
+    def test_create_note_requires_explicit_prefix(self):
+        self.assertEqual(parse_local_command("Создай заметку: Купить молоко"),
+                         ("save_note", "Купить молоко"))
+        self.assertIsNone(parse_local_command("Помоги создать заметку"))
+        self.assertIsNone(parse_local_command("Создай заметку: " + "x" * 1001))
+
     def test_recent(self):
         self.assertEqual(parse_local_command("Покажи недавние файлы"), ("recent", ""))
         self.assertEqual(parse_local_command("Выведи последние документы в этой папке"),
