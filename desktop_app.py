@@ -23,7 +23,7 @@ from local_commands import parse_local_command
 from local_action_policy import may_execute
 from task_overview import filtered_tasks, describe_task
 from task_daily_briefing import build_daily_briefing
-from task_planner import build_task_plan
+from task_planner import build_task_plan, build_day_parts
 from task_reminders import ReminderTracker, valid_reminder_time
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
@@ -600,14 +600,15 @@ class SherlockDesktop:
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось отложить напоминание.", "assistant")
                 return
-            if command[0] in ("plan_today", "plan_week"):
+            if command[0] in ("plan_today", "plan_week", "plan_day_parts"):
                 if not may_execute("list_tasks"):
                     self.append("Sherlock AI", "Просмотр задач запрещён настройками безопасности.", "assistant")
                     return
                 try:
                     with OfflineWorkspace() as workspace:
-                        plan = build_task_plan(workspace.list_task_details(),
-                                               period="today" if command[0] == "plan_today" else "week")
+                        entries = workspace.list_task_details()
+                        plan = (build_day_parts(entries) if command[0] == "plan_day_parts" else
+                                build_task_plan(entries, period="today" if command[0] == "plan_today" else "week"))
                     self.append("Планировщик", plan, "assistant")
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось составить план задач.", "assistant")
