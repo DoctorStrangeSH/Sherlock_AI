@@ -40,9 +40,9 @@ jobs:
       - name: Smoke test packaged executable
         shell: pwsh
         run: |
-          & ".\\dist\\SherlockAI\\SherlockAI.exe" --self-test
-          if ($LASTEXITCODE -ne 0) {
-            throw "Packaged executable self-test failed with exit code $LASTEXITCODE"
+          $process = Start-Process -FilePath ".\\dist\\SherlockAI\\SherlockAI.exe" -ArgumentList "--self-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged executable self-test failed with exit code $($process.ExitCode)"
           }
       - name: Upload Windows preview
         uses: actions/upload-artifact@v4
