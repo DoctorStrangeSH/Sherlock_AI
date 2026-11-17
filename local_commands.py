@@ -14,6 +14,12 @@ TASK_OVERDUE = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?пр�
 TASK_DUE = re.compile(r"^(?:установи|поставь|измени)\s+срок\s+задачи\s+#?(\d{1,9})\s*:\s*(\d{4}-\d{2}-\d{2})[.!?]?$", re.IGNORECASE)
 TASK_PRIORITY = re.compile(r"^(?:установи|поставь|измени)\s+приоритет\s+задачи\s+#?(\d{1,9})\s*:\s*(низкий|обычный|высокий)[.!?]?$", re.IGNORECASE)
 REMINDER_SNOOZE = re.compile(r"^(?:отложи|перенеси)\s+напоминание\s+(?:по\s+задаче\s+)?#?(\d{1,9})\s+на\s+(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)\s*[.!?]?$", re.IGNORECASE)
+TASK_SCHEDULE = re.compile(
+    r"^(?:составь|сделай|предложи)\s+расписание\s+с\s+(\d{2}:\d{2})\s+на\s+"
+    r"(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)"
+    r"(?:\s+с\s+перерывом\s+(\d{1,2})\s+минут(?:у|ы)?)?[.!?]?$",
+    re.IGNORECASE,
+)
 TASK_ESTIMATE = re.compile(r"^(?:установи|измени|поставь)\s+длительность\s+задачи\s+#?(\d{1,9})\s*:\s*(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)[.!?]?$", re.IGNORECASE)
 TASK_BUDGET = re.compile(r"^(?:составь|предложи|сделай)\s+(?:мне\s+)?план\s+на\s+сегодня\s+на\s+(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)[.!?]?$", re.IGNORECASE)
 TASK_DAY_PARTS = re.compile(r"^(?:распредели|раздели|разбей)\s+(?:мои\s+)?задачи\s+(?:на\s+сегодня|на\s+утро\s*,?\s*день\s*(?:и\s*)?вечер)[.!?]?$", re.IGNORECASE)
@@ -43,6 +49,14 @@ def parse_local_command(text):
         title = task.group(1).strip()
         if 1 <= len(title) <= 300:
             return ("create_task", title)
+    schedule = TASK_SCHEDULE.fullmatch(value)
+    if schedule:
+        amount = int(schedule.group(2))
+        duration = amount * 60 if schedule.group(3).lower().startswith("час") else amount
+        pause = int(schedule.group(4)) if schedule.group(4) else 10
+        start = schedule.group(1)
+        if 15 <= duration <= 1440 and 0 <= pause <= 60:
+            return ("timed_schedule", (start, duration, pause))
     estimate = TASK_ESTIMATE.fullmatch(value)
     if estimate:
         task_id = int(estimate.group(1))
