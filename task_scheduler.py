@@ -64,3 +64,49 @@ def build_timed_schedule(tasks, start_time, available_minutes, break_minutes=10,
         lines.append("Без оценки времени: " + ", ".join("#{}".format(task[0]) for task in unknown[:12]))
     lines.append("Это предложение; задачи и сроки в базе не изменены.")
     return "\n".join(lines)
+
+def describe_current_slot(plan_text, plan_date, at=None):
+    """Read the current time block from a generated schedule; no task writes."""
+    import re
+    from datetime import datetime
+
+    if not isinstance(plan_text, str) or not isinstance(plan_date, str):
+        raise ValueError("Некорректное расписание.")
+    today = datetime.now()
+    at = at or today
+    if not isinstance(at, datetime):
+        raise ValueError("Некорректное время.")
+    if plan_date != at.date().isoformat():
+        return "Последнее сохранённое расписание относится к другой дате. Составь новое на сегодня."
+
+    header = re.search(r"^🕘 Расписание (\d{2}:\d{2})–(\d{2}:\d{2}) · (\d{2}\.\d{2}\.\d{4})$", plan_text, re.MULTILINE)
+    if not header or header.group(3) != at.strftime("%d.%m.%Y"):
+        return "Не удалось распознать сохранённое расписание. Составь новое."
+    def minutes(clock):
+        hour, minute = map(int, clock.split(":"))
+        return hour * 60 + minute if hour < 24 and minute < 60 else None
+    start, end = minutes(header.group(1)), minutes(header.group(2))
+    if start is None or end is None or start >= end:
+        return "Не удалось распознать время расписания."
+    now = at.hour * 60 + at.minute
+    if now < start:
+        return f"Рабочий план ещё не начался: старт в {header.group(1)}."
+    if now >= end:
+        return f"Запланированное время закончилось в {header.group(2)}."
+
+    slots = []
+    for line in plan_text.splitlines():
+        match = re.fullmatch(r"(?:•|☕) (\d{2}:\d{2})–(\d{2}:\d{2}) (.+)", line)
+        if not match:
+            continue
+        left, right = minutes(match.group(1)), minutes(match.group(2))
+        if left is None or right is None or left >= right or left < start or right > end:
+            continue
+        slots.append((left, right, line))
+    for left, right, line in slots:
+        if left <= now < right:
+            return "Сейчас по расписанию:\n" + line
+    upcoming = [line for left, _, line in slots if left > now]
+    if upcoming:
+        return "Сейчас свободное окно. Следующий блок:\n" + upcoming[0]
+    return "В расписании сейчас свободное время до " + header.group(2) + "."
