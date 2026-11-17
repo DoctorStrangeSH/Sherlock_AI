@@ -66,11 +66,12 @@ class WorkspaceWindow:
         tabs.add(self.memory_frame, text="Память")
         tabs.add(self.history_frame, text="История")
         tabs.select(initial_tab if initial_tab in (0, 1, 2, 3) else 0)
-        self.tasks = self._table(self.task_frame, ("Состояние", "Задача"), (100, 550))
+        self.tasks = self._table(self.task_frame, ("Состояние", "Задача", "Приоритет", "Срок"), (100, 370, 110, 120))
         self.notes = self._table(self.note_frame, ("Заметка",), (650,))
         self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
         self.conversations = self._table(self.history_frame, ("Название", "Дата"), (450, 160))
         self._controls(self.task_frame, (("Добавить задачу", self.add_task),
+                                         ("Изменить срок/приоритет", self.edit_task_details),
                                          ("Выполнено", self.complete_task),
                                          ("Удалить", self.delete_task)))
         self._controls(self.note_frame, (("Новая", self.add_note),
@@ -132,8 +133,11 @@ class WorkspaceWindow:
     def refresh(self):
         self.tasks.delete(*self.tasks.get_children())
         tasks = self.store.list_tasks()
-        for task_id, title, done in tasks:
-            self.tasks.insert("", "end", iid=str(task_id), values=("✓ Готово" if done else "○ В работе", title))
+        priority_labels = {"low": "Низкий", "normal": "Обычный", "high": "Высокий"}
+        for task_id, title, done, priority, due_date in self.store.list_task_details():
+            self.tasks.insert("", "end", iid=str(task_id),
+                              values=("✓ Готово" if done else "○ В работе", title,
+                                      priority_labels.get(priority, "Обычный"), due_date or "—"))
         self.notes.delete(*self.notes.get_children())
         notes = self.store.list_notes()
         for note_id, content in notes:
@@ -162,6 +166,36 @@ class WorkspaceWindow:
                 self.refresh()
             except ValueError as exc:
                 messagebox.showwarning("Проверь текст", str(exc), parent=self.window)
+
+    def edit_task_details(self):
+        task_id = self._selected(self.tasks)
+        if task_id is None:
+            self.status.configure(text="Сначала выбери задачу.")
+            return
+        details = next((task for task in self.store.list_task_details() if task[0] == task_id), None)
+        if details is None:
+            return
+        current = {"low": "низкий", "normal": "обычный", "high": "высокий"}.get(details[3], "обычный")
+        priority_text = simpledialog.askstring(
+            "Приоритет задачи", "Выбери: низкий / обычный / высокий", initialvalue=current,
+            parent=self.window)
+        if priority_text is None:
+            return
+        priorities = {"низкий": "low", "обычный": "normal", "высокий": "high"}
+        priority = priorities.get(priority_text.strip().lower())
+        if priority is None:
+            messagebox.showwarning("Приоритет", "Введи: низкий, обычный или высокий.", parent=self.window)
+            return
+        due = simpledialog.askstring(
+            "Срок задачи", "Дата ГГГГ-ММ-ДД или пусто (без срока)",
+            initialvalue=details[4] or "", parent=self.window)
+        if due is None:
+            return
+        try:
+            self.store.update_task_details(task_id, priority, due.strip() or None)
+            self.refresh()
+        except ValueError as exc:
+            messagebox.showwarning("Проверь срок", str(exc), parent=self.window)
 
     def complete_task(self):
         task_id = self._selected(self.tasks)
