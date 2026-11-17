@@ -13,6 +13,7 @@ TASK_TODAY = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?зад�
 TASK_OVERDUE = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?просроченные\s+задачи[.!?]?$", re.IGNORECASE)
 TASK_DUE = re.compile(r"^(?:установи|поставь|измени)\s+срок\s+задачи\s+#?(\d{1,9})\s*:\s*(\d{4}-\d{2}-\d{2})[.!?]?$", re.IGNORECASE)
 TASK_PRIORITY = re.compile(r"^(?:установи|поставь|измени)\s+приоритет\s+задачи\s+#?(\d{1,9})\s*:\s*(низкий|обычный|высокий)[.!?]?$", re.IGNORECASE)
+REMINDER_SNOOZE = re.compile(r"^(?:отложи|перенеси)\s+напоминание\s+(?:по\s+задаче\s+)?#?(\d{1,9})\s+на\s+(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)\s*[.!?]?$", re.IGNORECASE)
 TASK_LIST = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?задачи[.!?]?$", re.IGNORECASE)
 TASK_DONE = re.compile(r"^(?:выполни|заверши|отметь\s+выполненной)\s+задачу\s+#?(\d{1,9})[.!?]?$", re.IGNORECASE)
 SEARCH = re.compile(
@@ -47,6 +48,13 @@ def parse_local_command(text):
     priority = TASK_PRIORITY.fullmatch(value)
     if priority and int(priority.group(1)) > 0:
         return ("set_task_priority", (int(priority.group(1)), priority.group(2).lower()))
+    reminder = REMINDER_SNOOZE.fullmatch(value)
+    if reminder:
+        task_id = int(reminder.group(1))
+        duration = int(reminder.group(2))
+        minutes = duration * 60 if reminder.group(3).lower().startswith("час") else duration
+        if task_id > 0 and 5 <= minutes <= 1440:
+            return ("snooze_reminder", (task_id, minutes))
     if TASK_LIST.fullmatch(value):
         return ("list_tasks", "")
     done = TASK_DONE.fullmatch(value)
