@@ -50,12 +50,16 @@ class ReminderTracker:
         except OSError:
             pass  # Disk errors must not interrupt the desktop application.
 
-    def snooze(self, task_ids, hours=2, now=None):
-        """Snooze chosen task reminders for 1–24 hours, persisted locally."""
-        if not 1 <= hours <= 24:
-            raise ValueError("Допустима отсрочка от 1 до 24 часов.")
+    def snooze(self, task_ids, hours=2, now=None, minutes=None):
+        """Snooze reminders for 5 minutes to 24 hours, persisted locally.
+
+        The hours argument is retained for compatibility with existing calls.
+        """
+        duration = hours * 60 if minutes is None else minutes
+        if isinstance(duration, bool) or not isinstance(duration, int) or not 5 <= duration <= 1440:
+            raise ValueError("Допустима отсрочка от 5 минут до 24 часов.")
         now = now or datetime.now()
-        until = (now + timedelta(hours=hours)).isoformat(timespec="seconds")
+        until = (now + timedelta(minutes=duration)).isoformat(timespec="seconds")
         for task_id in task_ids:
             self.snoozed[str(int(task_id))] = until
         self._save()
