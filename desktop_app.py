@@ -625,8 +625,14 @@ class SherlockDesktop:
                 with OfflineWorkspace() as workspace:
                     tasks = workspace.list_task_details()
                     saved = workspace.latest_plan()
-                    focus_count, focus_seconds = (workspace.focus_day_summary(date.today().isoformat())
-                                                   if may_execute("view_focus") else (0, 0))
+                    if may_execute("view_focus"):
+                        focus_count, focus_seconds = workspace.focus_day_summary(date.today().isoformat())
+                        week_count, week_seconds = workspace.focus_week_summary(date.today().isoformat())
+                        recent_focus = workspace.recent_focus_sessions()
+                    else:
+                        focus_count, focus_seconds = 0, 0
+                        week_count, week_seconds = 0, 0
+                        recent_focus = []
                 now = datetime.now()
                 summary, status, tasks_text, timeline = build_day_overview(
                     tasks, saved, now=now)
@@ -652,9 +658,17 @@ class SherlockDesktop:
                 self.day_summary.configure(
                     text=summary + f"\nФокус сегодня: {focus_seconds // 3600} ч "
                          f"{(focus_seconds % 3600) // 60} мин · сессий: {focus_count}")
+                recent_lines = "\n".join(
+                    f"{session_day} · #{task_id} {title[:55]} · {seconds // 60} мин. {seconds % 60} сек."
+                    for task_id, title, seconds, session_day in recent_focus
+                ) or "Сохранённых сессий пока нет."
                 sections = ("СЕЙЧАС\n" + status +
                             "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
-                            "\n\nВРЕМЕННАЯ ШКАЛА\n" + timeline)
+                            "\n\nВРЕМЕННАЯ ШКАЛА\n" + timeline +
+                            "\n\nФОКУС ЗА 7 ДНЕЙ\n" +
+                            f"{week_seconds // 3600} ч {(week_seconds % 3600) // 60} мин · "
+                            f"сессий: {week_count}\n" +
+                            "\nПОСЛЕДНИЕ СЕССИИ\n" + recent_lines)
             except (OSError, sqlite3.Error, ValueError):
                 self.day_summary.configure(text="Не удалось загрузить данные")
                 sections = "Проверь локальное хранилище задач."
