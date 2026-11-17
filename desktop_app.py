@@ -144,6 +144,23 @@ class SherlockDesktop:
         self.day_feedback = tk.Label(self.day_page, text="", bg=BACKGROUND, fg=MUTED,
                                      anchor="w", justify="left")
         self.day_feedback.pack(fill="x", padx=24, pady=(0, 5))
+        tk.Label(self.day_page, text="Предложенные задачи для переноса",
+                 bg=BACKGROUND, fg=TEXT,
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=24)
+        self.day_rebalance_tasks = tk.Listbox(
+            self.day_page, height=3, selectmode="extended",
+            bg=SURFACE, fg=TEXT, selectbackground=ACCENT,
+            selectforeground=BACKGROUND, borderwidth=0,
+            highlightthickness=0, exportselection=False,
+            font=("Segoe UI", 10),
+        )
+        self.day_rebalance_tasks.pack(fill="x", padx=24, pady=(5, 6))
+        self.day_rebalance_rows = []
+        self.day_rebalance_date = None
+        tk.Button(self.day_page, text="→ Предпросмотр и перенос выбранных на завтра",
+                  command=self.confirm_day_rebalance, bg=INPUT, fg=TEXT,
+                  relief="flat", padx=12, pady=7).pack(
+                      anchor="w", padx=24, pady=(0, 10))
         self.day_text = ScrolledText(self.day_page, wrap="word", bg=SURFACE, fg=TEXT,
                                     font=("Segoe UI", 10), relief="flat", padx=16,
                                     pady=14, state="disabled")
@@ -602,6 +619,42 @@ class SherlockDesktop:
         except (OSError, sqlite3.Error):
             self.day_feedback.configure(text="Не удалось изменить задачу.")
 
+    def confirm_day_rebalance(self) -> None:
+        """Show exact due-date changes and require explicit approval."""
+        selected = self.day_rebalance_tasks.curselection()
+        rows = [self.day_rebalance_rows[index] for index in selected
+                if index < len(self.day_rebalance_rows)]
+        if not rows:
+            self.day_feedback.configure(text="Выбери задачи из списка предложений.")
+            return
+        day = self.day_rebalance_date
+        if day is None or day != date.today().isoformat():
+            self.day_feedback.configure(text="Дата изменилась. Обнови страницу.")
+            return
+        tomorrow = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+        preview = "\n".join(
+            f"#{task_id} {title[:70]}: {day} → {tomorrow}"
+            for task_id, title, _, _ in rows
+        )
+        approved = messagebox.askyesno(
+            "Подтвердить перенос задач?",
+            "Изменятся только сроки выбранных задач:\n\n" + preview +
+            "\n\nПеренести эти задачи на завтра?",
+            parent=self.root,
+        )
+        if not may_execute("defer_tasks", confirmed=approved):
+            return
+        try:
+            with OfflineWorkspace() as workspace:
+                changed = workspace.defer_nonurgent_tasks(
+                    day, [task_id for task_id, _, _, _ in rows],
+                )
+            self.refresh_day_page()
+            self.day_feedback.configure(text=f"Перенесено задач: {changed}.")
+        except (OSError, sqlite3.Error, ValueError):
+            self.day_feedback.configure(
+                text="Список задач изменился или перенос не удался. Обнови страницу.")
+
     def tick_day_page(self) -> None:
         """Refresh only the visible planner; stop scheduling on window close."""
         if self.closed:
@@ -616,6 +669,9 @@ class SherlockDesktop:
                        if selected and selected[0] < len(self.day_task_rows) else None)
         self.day_task_rows = []
         self.day_tasks.delete(0, "end")
+        self.day_rebalance_rows = []
+        self.day_rebalance_date = None
+        self.day_rebalance_tasks.delete(0, "end")
         self.day_progress["value"] = 0
         if not may_execute("view_plan") or not may_execute("list_tasks"):
             self.day_summary.configure(text="Доступ к данным ограничен")
@@ -646,6 +702,14 @@ class SherlockDesktop:
                         workload = None
                         rebalance = None
                 now = datetime.now()
+                if rebalance is not None and rebalance[1]:
+                    self.day_rebalance_date = now.date().isoformat()
+                    self.day_rebalance_rows = list(rebalance[1])
+                    for task_id, title, minutes, priority in self.day_rebalance_rows:
+                        badge = "Низкий" if priority == "low" else "Обычный"
+                        self.day_rebalance_tasks.insert(
+                            "end", f"#{task_id} · {title[:65]} · {minutes} мин · {badge}"
+                        )
                 summary, status, tasks_text, timeline = build_day_overview(
                     tasks, saved, now=now)
                 relevant = [item for item in tasks if item[4] and item[4] <= now.date().isoformat()]
