@@ -110,3 +110,41 @@ def describe_current_slot(plan_text, plan_date, at=None):
     if upcoming:
         return "Сейчас свободное окно. Следующий блок:\n" + upcoming[0]
     return "В расписании сейчас свободное время до " + header.group(2) + "."
+
+
+def shift_saved_schedule(plan_text, plan_date, delay_minutes, today=None):
+    """Preview a delayed schedule without changing database records or tasks."""
+    import re
+    from datetime import datetime
+    today = today or datetime.now().date()
+    if not isinstance(delay_minutes, int) or isinstance(delay_minutes, bool) or not 5 <= delay_minutes <= 180:
+        raise ValueError("Задержка должна быть от 5 до 180 минут.")
+    if plan_date != today.isoformat():
+        raise ValueError("Перестроить можно только расписание на сегодня.")
+    header = re.search(
+        r"^🕘 Расписание (\d{2}:\d{2})–(\d{2}:\d{2}) · (\d{2}\.\d{2}\.\d{4})$",
+        plan_text, re.MULTILINE,
+    )
+    if not header or header.group(3) != today.strftime("%d.%m.%Y"):
+        raise ValueError("Сохранённое расписание имеет неизвестный формат.")
+    def shifted(value):
+        hour, minute = map(int, value.split(":"))
+        if hour > 23 or minute > 59:
+            raise ValueError("Некорректное время расписания.")
+        new_minutes = hour * 60 + minute + delay_minutes
+        if new_minutes > 1440:
+            raise ValueError("После задержки расписание выходит за полночь.")
+        return f"{new_minutes // 60:02d}:{new_minutes % 60:02d}"
+    shifted(header.group(2))  # Validate entire window before transforming it.
+    def change_time(match):
+        return shifted(match.group(1)) + "–" + shifted(match.group(2))
+    shifted_lines = []
+    for line in plan_text.splitlines():
+        if line.startswith("🕘 Расписание "):
+            line = re.sub(r"\b(\d{2}:\d{2})–(\d{2}:\d{2})\b", change_time, line, count=1)
+        elif line.startswith(("• ", "☕ ")):
+            line = re.sub(r"\b(\d{2}:\d{2})–(\d{2}:\d{2})\b", change_time, line, count=1)
+        shifted_lines.append(line)
+    return ("\n".join(shifted_lines) +
+            f"\nПредпросмотр: все блоки сдвинуты на {delay_minutes} мин. "
+            "Задачи не изменены; для сохранения напиши «Сохрани расписание».")
