@@ -8,6 +8,9 @@ RECENT = re.compile(
     re.IGNORECASE,
 )
 NOTE = re.compile(r"^(?:создай|запиши|добавь)\s+заметку\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
+TASK_CREATE = re.compile(r"^(?:создай|добавь|запиши)\s+задачу\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
+TASK_LIST = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?задачи[.!?]?$", re.IGNORECASE)
+TASK_DONE = re.compile(r"^(?:выполни|заверши|отметь\s+выполненной)\s+задачу\s+#?(\d{1,9})[.!?]?$", re.IGNORECASE)
 SEARCH = re.compile(
     r"^(?:найди|поищи|отыщи)\s+(?:мне\s+)?(.+?)\s+"
     r"в\s+(?:выбранной|этой)\s+папке[.!?]?$",
@@ -25,6 +28,18 @@ def parse_local_command(text):
         content = note.group(1).strip()
         if 1 <= len(content) <= 1000:
             return ("save_note", content)
+    task = TASK_CREATE.fullmatch(value)
+    if task:
+        title = task.group(1).strip()
+        if 1 <= len(title) <= 300:
+            return ("create_task", title)
+    if TASK_LIST.fullmatch(value):
+        return ("list_tasks", "")
+    done = TASK_DONE.fullmatch(value)
+    if done:
+        number = int(done.group(1))
+        if number > 0:
+            return ("complete_task", number)
     if RECENT.fullmatch(value):
         return ("recent", "")
     match = SEARCH.fullmatch(value)
