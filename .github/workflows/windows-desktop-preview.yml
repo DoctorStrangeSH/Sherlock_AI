@@ -6,6 +6,12 @@ on:
     branches: ["refactor/secure-local-assistant-foundation"]
     paths:
       - ".github/workflows/windows-desktop-preview.yml"
+      - "desktop_app.py"
+      - "offline_workspace.py"
+      - "offline_workspace_app.py"
+      - "focus_session.py"
+      - "task_scheduler.py"
+      - "tests/**"
 
 jobs:
   windows-preview:
