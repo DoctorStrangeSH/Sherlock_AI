@@ -51,6 +51,8 @@ class OfflineWorkspace:
                 self.conn.execute("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'")
             if "due_date" not in columns:
                 self.conn.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
+            if "estimated_minutes" not in columns:
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN estimated_minutes INTEGER")
 
     @staticmethod
     def _clean(value, maximum):
@@ -90,6 +92,24 @@ class OfflineWorkspace:
         return self.conn.execute(
             "SELECT id, title, done, priority, due_date FROM tasks ORDER BY done, id DESC"
         ).fetchall()
+
+    def list_task_estimates(self):
+        """Task tuple: id, title, done, priority, due_date, estimated_minutes."""
+        return self.conn.execute(
+            "SELECT id, title, done, priority, due_date, estimated_minutes "
+            "FROM tasks ORDER BY done, id DESC"
+        ).fetchall()
+
+    def update_task_estimate(self, task_id, minutes=None):
+        """An unknown duration stays NULL; never silently invent an estimate."""
+        if minutes is not None and (
+            isinstance(minutes, bool) or not isinstance(minutes, int) or not 5 <= minutes <= 1440
+        ):
+            raise ValueError("Длительность должна быть от 5 до 1440 минут.")
+        with self.conn:
+            return self.conn.execute(
+                "UPDATE tasks SET estimated_minutes = ? WHERE id = ?", (minutes, task_id)
+            ).rowcount > 0
 
     def update_task_details(self, task_id, priority="normal", due_date=None):
         priority, due_date = self._validate_task_meta(priority, due_date)
