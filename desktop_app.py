@@ -632,6 +632,7 @@ class SherlockDesktop:
                         top_focus = workspace.top_focus_tasks(date.today().isoformat())
                         focus_vs_estimate = workspace.focus_estimate_comparison(date.today().isoformat())
                         focus_suggestions = workspace.focus_duration_recommendations(date.today().isoformat())
+                        focus_week_days = workspace.focus_last_seven_days(date.today().isoformat())
                     else:
                         focus_count, focus_seconds = 0, 0
                         week_count, week_seconds = 0, 0
@@ -639,6 +640,7 @@ class SherlockDesktop:
                         top_focus = []
                         focus_vs_estimate = []
                         focus_suggestions = []
+                        focus_week_days = []
                 now = datetime.now()
                 summary, status, tasks_text, timeline = build_day_overview(
                     tasks, saved, now=now)
@@ -688,12 +690,21 @@ class SherlockDesktop:
                     f"ориентир {suggested} мин/день (дней с работой: {days})"
                     for task_id, title, estimate, suggested, days in focus_suggestions
                 ) or "Недостаточно истории для надёжных подсказок."
+                week_max = max((seconds for _, seconds in focus_week_days), default=0)
+                weekdays = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+                week_chart = "\n".join(
+                    f"{weekdays[date.fromisoformat(day).weekday()]} {day[5:]}  "
+                    f"{'▰' * max(1, round(seconds * 12 / week_max)) if seconds else '·'} "
+                    f"{seconds // 3600} ч {(seconds % 3600) // 60} мин"
+                    for day, seconds in focus_week_days
+                ) if focus_week_days else "Статистика недоступна."
                 sections = ("СЕЙЧАС\n" + status +
                             "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
                             "\n\nВРЕМЕННАЯ ШКАЛА\n" + timeline +
                             "\n\nФОКУС ЗА 7 ДНЕЙ\n" +
                             f"{week_seconds // 3600} ч {(week_seconds % 3600) // 60} мин · "
                             f"сессий: {week_count}\n" +
+                            week_chart +
                             "\n\nПЛАН И ФАКТ ПО ЗАДАЧАМ СЕГОДНЯ\n" + estimate_lines +
                             "\n\nПОДСКАЗКИ ПО ВРЕМЕНИ · БЕЗ ИЗМЕНЕНИЯ ЗАДАЧ\n" + suggestions_text +
                             "\n\nТОП ЗАДАЧ ПО ВРЕМЕНИ (7 ДНЕЙ)\n" + top_lines +
