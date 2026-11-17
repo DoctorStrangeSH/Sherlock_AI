@@ -9,6 +9,8 @@ RECENT = re.compile(
 )
 NOTE = re.compile(r"^(?:создай|запиши|добавь)\s+заметку\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
 TASK_CREATE = re.compile(r"^(?:создай|добавь|запиши)\s+задачу\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
+TASK_TODAY = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?задачи\s+на\s+сегодня[.!?]?$", re.IGNORECASE)
+TASK_OVERDUE = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?просроченные\s+задачи[.!?]?$", re.IGNORECASE)
 TASK_LIST = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?задачи[.!?]?$", re.IGNORECASE)
 TASK_DONE = re.compile(r"^(?:выполни|заверши|отметь\s+выполненной)\s+задачу\s+#?(\d{1,9})[.!?]?$", re.IGNORECASE)
 SEARCH = re.compile(
@@ -33,6 +35,10 @@ def parse_local_command(text):
         title = task.group(1).strip()
         if 1 <= len(title) <= 300:
             return ("create_task", title)
+    if TASK_TODAY.fullmatch(value):
+        return ("tasks_today", "")
+    if TASK_OVERDUE.fullmatch(value):
+        return ("tasks_overdue", "")
     if TASK_LIST.fullmatch(value):
         return ("list_tasks", "")
     done = TASK_DONE.fullmatch(value)
