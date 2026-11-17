@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
 from offline_workspace import OfflineWorkspace
+from task_overview import task_bucket
 
 
 BG = "#0b1020"
@@ -134,9 +135,14 @@ class WorkspaceWindow:
         self.tasks.delete(*self.tasks.get_children())
         tasks = self.store.list_tasks()
         priority_labels = {"low": "Низкий", "normal": "Обычный", "high": "Высокий"}
-        for task_id, title, done, priority, due_date in self.store.list_task_details():
+        detailed_tasks = self.store.list_task_details()
+        states = {"done": "✓ Готово", "overdue": "⚠ Просрочено",
+                  "today": "◉ Сегодня", "upcoming": "○ В работе",
+                  "unscheduled": "○ В работе"}
+        for task in detailed_tasks:
+            task_id, title, done, priority, due_date = task
             self.tasks.insert("", "end", iid=str(task_id),
-                              values=("✓ Готово" if done else "○ В работе", title,
+                              values=(states[task_bucket(task)], title,
                                       priority_labels.get(priority, "Обычный"), due_date or "—"))
         self.notes.delete(*self.notes.get_children())
         notes = self.store.list_notes()
@@ -151,7 +157,9 @@ class WorkspaceWindow:
         for conversation_id, title, created_at in conversations:
             self.conversations.insert("", "end", iid=str(conversation_id), values=(title, created_at))
         open_count = sum(not done for _, _, done in tasks)
-        self.status.configure(text=f"Открытых задач: {open_count} · Заметок: {len(notes)} · Фактов памяти: {len(memories)} · Диалогов: {len(conversations)}")
+        overdue_count = sum(task_bucket(task) == "overdue" for task in detailed_tasks)
+        today_count = sum(task_bucket(task) == "today" for task in detailed_tasks)
+        self.status.configure(text=f"Открытых: {open_count} · Сегодня: {today_count} · Просрочено: {overdue_count} · Заметок: {len(notes)} · Память: {len(memories)}")
 
     @staticmethod
     def _selected(table):
