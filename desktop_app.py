@@ -135,6 +135,10 @@ class SherlockDesktop:
                                     font=("Segoe UI", 10), relief="flat", padx=16,
                                     pady=14, state="disabled")
         self.day_text.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        self.day_text.tag_configure("active_block", foreground="#a9f6ce",
+                                    background="#203a39", font=("Segoe UI", 10, "bold"))
+        self.day_text.tag_configure("past_block", foreground="#7e90ad")
+        self.day_text.tag_configure("future_block", foreground="#d2dcff")
         self.tools_page = tk.Frame(self.content_area, bg=BACKGROUND)
         tk.Label(self.tools_page, text="Локальные инструменты", bg=BACKGROUND, fg=TEXT,
                  font=("Segoe UI", 19, "bold")).pack(anchor="w", padx=24, pady=(22, 7))
@@ -564,6 +568,12 @@ class SherlockDesktop:
         self.day_text.configure(state="normal")
         self.day_text.delete("1.0", "end")
         self.day_text.insert("1.0", sections)
+        for index, line in enumerate(sections.splitlines(), start=1):
+            tag = ("active_block" if line.startswith("▶  ") else
+                   "past_block" if line.startswith("✓  ") else
+                   "future_block" if line.startswith("○  ") else None)
+            if tag:
+                self.day_text.tag_add(tag, f"{index}.0", f"{index}.end")
         self.day_text.configure(state="disabled")
 
     def show_page(self, page: str) -> None:
