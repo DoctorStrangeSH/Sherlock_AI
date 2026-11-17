@@ -16,6 +16,15 @@ class LocalCommandsTests(unittest.TestCase):
         self.assertIsNone(parse_local_command("Помоги создать заметку"))
         self.assertIsNone(parse_local_command("Создай заметку: " + "x" * 1001))
 
+    def test_task_commands(self):
+        self.assertEqual(parse_local_command("Создай задачу: Проверить проект"),
+                         ("create_task", "Проверить проект"))
+        self.assertEqual(parse_local_command("Покажи мои задачи"), ("list_tasks", ""))
+        self.assertEqual(parse_local_command("Отметь выполненной задачу #42"),
+                         ("complete_task", 42))
+        self.assertIsNone(parse_local_command("Заверши задачу 0"))
+        self.assertIsNone(parse_local_command("Создай задачу: " + "x" * 301))
+
     def test_recent(self):
         self.assertEqual(parse_local_command("Покажи недавние файлы"), ("recent", ""))
         self.assertEqual(parse_local_command("Выведи последние документы в этой папке"),
