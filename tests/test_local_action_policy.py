@@ -15,6 +15,8 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(may_execute("save_note", confirmed=True))
         self.assertFalse(may_execute("complete_task"))
         self.assertTrue(may_execute("complete_task", confirmed=True))
+        self.assertFalse(may_execute("update_task"))
+        self.assertTrue(may_execute("update_task", confirmed=True))
 
     def test_unknown_and_destructive_denied(self):
         for action in ("delete_file", "shell_command", "unknown", ""):
