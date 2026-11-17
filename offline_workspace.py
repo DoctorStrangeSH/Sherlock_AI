@@ -157,6 +157,27 @@ class OfflineWorkspace:
             (session_date,),
         ).fetchone()
 
+    def recent_focus_sessions(self, limit=5):
+        """Recent saved focus sessions, newest first."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 50:
+            raise ValueError("Некорректное количество сессий.")
+        return self.conn.execute(
+            "SELECT task_id, title, duration_seconds, session_date "
+            "FROM focus_sessions ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    def focus_week_summary(self, ending_day):
+        """Count and total working seconds over seven calendar days."""
+        from datetime import timedelta
+        self._validate_task_meta("normal", ending_day)
+        first_day = (date.fromisoformat(ending_day) - timedelta(days=6)).isoformat()
+        return self.conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(duration_seconds), 0) "
+            "FROM focus_sessions WHERE session_date BETWEEN ? AND ?",
+            (first_day, ending_day),
+        ).fetchone()
+
     def nonurgent_tasks_due(self, day):
         """Only open, non-high-priority tasks due exactly on the selected day."""
         self._validate_task_meta("normal", day)
