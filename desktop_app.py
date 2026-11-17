@@ -631,12 +631,14 @@ class SherlockDesktop:
                         recent_focus = workspace.recent_focus_sessions()
                         top_focus = workspace.top_focus_tasks(date.today().isoformat())
                         focus_vs_estimate = workspace.focus_estimate_comparison(date.today().isoformat())
+                        focus_suggestions = workspace.focus_duration_recommendations(date.today().isoformat())
                     else:
                         focus_count, focus_seconds = 0, 0
                         week_count, week_seconds = 0, 0
                         recent_focus = []
                         top_focus = []
                         focus_vs_estimate = []
+                        focus_suggestions = []
                 now = datetime.now()
                 summary, status, tasks_text, timeline = build_day_overview(
                     tasks, saved, now=now)
@@ -681,6 +683,11 @@ class SherlockDesktop:
                     f"{abs(actual - estimate * 60) // 60} мин"
                     for task_id, title, estimate, actual in focus_vs_estimate
                 ) or "Сегодня нет завершённых сессий по задачам с оценкой времени."
+                suggestions_text = "\n".join(
+                    f"#{task_id} {title[:35]} · оценка {estimate} мин → "
+                    f"ориентир {suggested} мин/день (дней с работой: {days})"
+                    for task_id, title, estimate, suggested, days in focus_suggestions
+                ) or "Недостаточно истории для надёжных подсказок."
                 sections = ("СЕЙЧАС\n" + status +
                             "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
                             "\n\nВРЕМЕННАЯ ШКАЛА\n" + timeline +
@@ -688,6 +695,7 @@ class SherlockDesktop:
                             f"{week_seconds // 3600} ч {(week_seconds % 3600) // 60} мин · "
                             f"сессий: {week_count}\n" +
                             "\n\nПЛАН И ФАКТ ПО ЗАДАЧАМ СЕГОДНЯ\n" + estimate_lines +
+                            "\n\nПОДСКАЗКИ ПО ВРЕМЕНИ · БЕЗ ИЗМЕНЕНИЯ ЗАДАЧ\n" + suggestions_text +
                             "\n\nТОП ЗАДАЧ ПО ВРЕМЕНИ (7 ДНЕЙ)\n" + top_lines +
                             "\n\nПОСЛЕДНИЕ СЕССИИ\n" + recent_lines)
             except (OSError, sqlite3.Error, ValueError):
