@@ -25,6 +25,7 @@ from local_action_policy import may_execute
 from task_overview import filtered_tasks, describe_task
 from task_daily_briefing import build_daily_briefing
 from day_overview import build_day_overview
+from focus_session import FocusSession
 from task_planner import build_task_plan, build_day_parts, build_time_budget_plan
 from task_scheduler import build_timed_schedule, describe_current_slot, shift_saved_schedule, build_remaining_day_schedule
 from task_reminders import ReminderTracker, valid_reminder_time
@@ -56,6 +57,7 @@ class SherlockDesktop:
         self.searching = False
         self.pending_schedule = None
         self.current_page = "chat"
+        self.focus_session = FocusSession()
         self.reminder_popup = None
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.reminder_tracker = ReminderTracker(self.model_config_path.parent / "shown_reminders.json")
@@ -125,6 +127,17 @@ class SherlockDesktop:
                                     font=("Segoe UI", 10))
         self.day_tasks.pack(fill="x", padx=24, pady=(7, 7))
         self.day_task_rows = []
+        self.focus_label = tk.Label(self.day_page, text="Фокус · таймер не запущен",
+                                    bg=BACKGROUND, fg="#a9f6ce", anchor="w",
+                                    font=("Segoe UI", 11, "bold"))
+        self.focus_label.pack(fill="x", padx=24, pady=(0, 7))
+        focus_controls = tk.Frame(self.day_page, bg=BACKGROUND)
+        focus_controls.pack(fill="x", padx=24, pady=(0, 8))
+        for label, action in (("▶ Начать", self.start_focus),
+                              ("Ⅱ Пауза / продолжить", self.toggle_focus),
+                              ("■ Завершить сессию", self.finish_focus)):
+            tk.Button(focus_controls, text=label, command=action, bg=INPUT, fg=TEXT,
+                      relief="flat", padx=8, pady=7).pack(side="left", padx=(0, 6))
         tk.Button(self.day_page, text="✓ Отметить выбранную выполненной",
                   command=self.complete_day_task, bg=INPUT, fg=TEXT, relief="flat",
                   padx=12, pady=7).pack(anchor="w", padx=24, pady=(0, 12))
@@ -274,6 +287,7 @@ class SherlockDesktop:
         self.root.after(100, self.poll)
         self.root.after(60_000, self.check_reminders)
         self.root.after(60_000, self.tick_day_page)
+        self.root.after(1000, self.tick_focus)
         threading.Thread(target=self.check_model, daemon=True).start()
         self.input.focus_set()
 
@@ -491,6 +505,70 @@ class SherlockDesktop:
         if question:
             self.append("Sherlock AI", "Найдено совпадений: {}. Подробности в «Инструментах».\n{}".format(
                 len(result["matches"]), "\n".join(item["path"] for item in result["matches"][:5])), "assistant")
+
+    def selected_day_task(self):
+        selected = self.day_tasks.curselection()
+        if selected and selected[0] < len(self.day_task_rows):
+            return self.day_task_rows[selected[0]]
+        return None
+
+    def start_focus(self) -> None:
+        selected = self.selected_day_task()
+        if selected is None:
+            self.day_feedback.configure(text="Выбери задачу для фокусировки.")
+            return
+        try:
+            self.focus_session.start(*selected)
+            self.day_feedback.configure(text="Фокус-сессия начата. Таймер работает локально.")
+            self.refresh_focus_label()
+        except ValueError as exc:
+            self.day_feedback.configure(text=str(exc))
+
+    def toggle_focus(self) -> None:
+        try:
+            if self.focus_session.paused:
+                self.focus_session.resume()
+            else:
+                self.focus_session.pause()
+            self.refresh_focus_label()
+        except ValueError as exc:
+            self.day_feedback.configure(text=str(exc))
+
+    def finish_focus(self) -> None:
+        if not self.focus_session.active:
+            self.day_feedback.configure(text="Сначала начни фокус-сессию.")
+            return
+        task_id, title, duration = self.focus_session.finish()
+        self.refresh_focus_label()
+        self.day_feedback.configure(text=f"Сессия завершена: {duration // 60} мин. {duration % 60} сек.")
+        if messagebox.askyesno(
+            "Отметить задачу выполненной?",
+            f"Фокус-сессия по задаче #{task_id} завершена.\n\n{title[:200]}\n\nОтметить задачу выполненной?",
+            parent=self.root,
+        ) and may_execute("complete_task", confirmed=True):
+            try:
+                with OfflineWorkspace() as workspace:
+                    workspace.complete_task(task_id)
+                self.refresh_day_page()
+            except (OSError, sqlite3.Error):
+                self.day_feedback.configure(text="Сессия завершена, но изменить задачу не удалось.")
+
+    def refresh_focus_label(self) -> None:
+        if not self.focus_session.active:
+            self.focus_label.configure(text="Фокус · таймер не запущен")
+            return
+        seconds = self.focus_session.seconds()
+        label = "Пауза" if self.focus_session.paused else "В работе"
+        self.focus_label.configure(
+            text=f"{label} · #{self.focus_session.task_id} · {seconds // 60:02d}:{seconds % 60:02d} · "
+                 f"{self.focus_session.title[:48]}")
+
+    def tick_focus(self) -> None:
+        if self.closed:
+            return
+        if self.current_page == "day" and self.focus_session.active:
+            self.refresh_focus_label()
+        self.root.after(1000, self.tick_focus)
 
     def complete_day_task(self) -> None:
         selection = self.day_tasks.curselection()
