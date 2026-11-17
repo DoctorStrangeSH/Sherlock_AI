@@ -148,3 +148,25 @@ def shift_saved_schedule(plan_text, plan_date, delay_minutes, today=None):
     return ("\n".join(shifted_lines) +
             f"\nПредпросмотр: все блоки сдвинуты на {delay_minutes} мин. "
             "Задачи не изменены; для сохранения напиши «Сохрани расписание».")
+
+
+def build_remaining_day_schedule(tasks, available_minutes, now=None):
+    """Propose a schedule for the remaining window, without mutating tasks."""
+    from datetime import datetime
+    now = now or datetime.now()
+    if not isinstance(now, datetime):
+        raise ValueError("Некорректное текущее время.")
+    if not isinstance(available_minutes, int) or isinstance(available_minutes, bool):
+        raise ValueError("Некорректная продолжительность.")
+    if not 15 <= available_minutes <= 720:
+        raise ValueError("Укажи от 15 минут до 12 часов.")
+    start = now.hour * 60 + now.minute
+    if start + available_minutes > 1440:
+        raise ValueError("Указанное время выходит за пределы сегодняшнего дня.")
+    plan = build_timed_schedule(
+        tasks, f"{now.hour:02d}:{now.minute:02d}", available_minutes,
+        today=now.date(),
+    )
+    return (plan + "\nПредложение учитывает срочные задачи и задачи высокого "
+            "приоритета с известной длительностью. Остальные задачи не перенесены. "
+            "Чтобы сохранить этот план, напиши «Сохрани расписание».")
