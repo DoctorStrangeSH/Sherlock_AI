@@ -58,6 +58,7 @@ class SherlockDesktop:
         self.pending_schedule = None
         self.current_page = "chat"
         self.focus_session = FocusSession()
+        self.focus_target_minutes = None
         self.reminder_popup = None
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.reminder_tracker = ReminderTracker(self.model_config_path.parent / "shown_reminders.json")
@@ -169,7 +170,17 @@ class SherlockDesktop:
             bg=SURFACE, fg=TEXT, anchor="w", justify="left",
             wraplength=430, font=("Segoe UI", 10),
         )
-        self.focus_task_value.pack(fill="x", pady=(0, 10))
+        self.focus_task_value.pack(fill="x", pady=(0, 6))
+        self.focus_progress = ttk.Progressbar(
+            focus_card, mode="determinate", maximum=100,
+        )
+        self.focus_progress.pack(fill="x", pady=(1, 4))
+        self.focus_progress_label = tk.Label(
+            focus_card, text="Оценка времени не задана",
+            bg=SURFACE, fg=MUTED, anchor="w",
+            font=("Segoe UI", 9),
+        )
+        self.focus_progress_label.pack(fill="x", pady=(0, 10))
         focus_controls = tk.Frame(focus_card, bg=SURFACE)
         focus_controls.pack(fill="x")
         self.focus_buttons = {}
@@ -586,6 +597,15 @@ class SherlockDesktop:
             return
         try:
             self.focus_session.start(*selected)
+            self.focus_target_minutes = None
+            try:
+                with OfflineWorkspace() as workspace:
+                    for task in workspace.list_task_estimates():
+                        if task[0] == selected[0]:
+                            self.focus_target_minutes = task[5]
+                            break
+            except (OSError, sqlite3.Error):
+                pass
             self.day_feedback.configure(text="Фокус-сессия начата. Таймер работает локально.")
             self.refresh_focus_label()
         except ValueError as exc:
@@ -606,6 +626,7 @@ class SherlockDesktop:
             self.day_feedback.configure(text="Сначала начни фокус-сессию.")
             return
         task_id, title, duration = self.focus_session.finish()
+        self.focus_target_minutes = None
         self.refresh_focus_label()
         self.day_feedback.configure(text=f"Сессия завершена: {duration // 60} мин. {duration % 60} сек.")
         save_approved = duration > 0 and messagebox.askyesno(
@@ -647,6 +668,25 @@ class SherlockDesktop:
             text=(f"#{self.focus_session.task_id} · {self.focus_session.title[:75]}"
                   if active else "Выбери задачу и нажми «Начать»."),
         )
+        target = self.focus_target_minutes if active else None
+        if target:
+            elapsed_minutes = seconds // 60
+            self.focus_progress["value"] = min(100, seconds * 100 / (target * 60))
+            remaining = max(0, target * 60 - seconds)
+            if seconds >= target * 60:
+                progress_text = f"Ориентир {target} мин достигнут · +{(seconds - target * 60) // 60} мин"
+            else:
+                progress_text = (
+                    f"Ориентир {target} мин · осталось "
+                    f"{remaining // 60} мин {remaining % 60} сек"
+                )
+            self.focus_progress_label.configure(text=progress_text, fg=TEXT)
+        else:
+            self.focus_progress["value"] = 0
+            self.focus_progress_label.configure(
+                text="Оценка времени не задана" if active else "Ожидание начала работы",
+                fg=MUTED,
+            )
         self.focus_buttons["start"].configure(state="disabled" if active else "normal")
         self.focus_buttons["pause"].configure(
             state="normal" if active else "disabled",
