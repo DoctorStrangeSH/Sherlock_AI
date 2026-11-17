@@ -25,6 +25,13 @@ class LocalCommandsTests(unittest.TestCase):
         self.assertIsNone(parse_local_command("Заверши задачу 0"))
         self.assertIsNone(parse_local_command("Создай задачу: " + "x" * 301))
 
+    def test_task_metadata_commands(self):
+        self.assertEqual(parse_local_command("Установи срок задачи #5: 2026-11-20"),
+                         ("set_task_due", (5, "2026-11-20")))
+        self.assertEqual(parse_local_command("Измени приоритет задачи 12: высокий"),
+                         ("set_task_priority", (12, "высокий")))
+        self.assertIsNone(parse_local_command("Установи срок задачи 0: 2026-11-20"))
+
     def test_task_filters(self):
         self.assertEqual(parse_local_command("Покажи задачи на сегодня"),
                          ("tasks_today", ""))
