@@ -214,6 +214,40 @@ class OfflineWorkspace:
             (session_date, limit),
         ).fetchall()
 
+    def focus_duration_recommendations(self, ending_day, limit=5):
+        """Read-only daily time suggestions from at least three past active days."""
+        from datetime import timedelta
+        from statistics import median
+
+        self._validate_task_meta("normal", ending_day)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
+            raise ValueError("Некорректное количество рекомендаций.")
+        day = date.fromisoformat(ending_day)
+        first_day = (day - timedelta(days=30)).isoformat()
+        last_day = (day - timedelta(days=1)).isoformat()
+        rows = self.conn.execute(
+            "SELECT t.id, t.title, t.estimated_minutes, f.session_date, "
+            "SUM(f.duration_seconds) AS day_seconds "
+            "FROM focus_sessions AS f JOIN tasks AS t ON t.id = f.task_id "
+            "WHERE f.session_date BETWEEN ? AND ? "
+            "AND t.estimated_minutes IS NOT NULL AND t.done = 0 "
+            "GROUP BY t.id, t.title, t.estimated_minutes, f.session_date "
+            "ORDER BY t.id, f.session_date",
+            (first_day, last_day),
+        ).fetchall()
+        grouped = {}
+        for task_id, title, estimate, _, seconds in rows:
+            grouped.setdefault(task_id, (title, estimate, []))[2].append(seconds)
+        recommendations = []
+        for task_id, (title, estimate, seconds_per_day) in grouped.items():
+            if len(seconds_per_day) < 3:
+                continue
+            suggested = max(5, min(1440, int((median(seconds_per_day) / 60 + 2.5) // 5) * 5))
+            if abs(suggested - estimate) < max(10, estimate * 0.2):
+                continue
+            recommendations.append((task_id, title, estimate, suggested, len(seconds_per_day)))
+        return sorted(recommendations, key=lambda item: (-abs(item[3] - item[2]), item[0]))[:limit]
+
     def nonurgent_tasks_due(self, day):
         """Only open, non-high-priority tasks due exactly on the selected day."""
         self._validate_task_meta("normal", day)
