@@ -23,7 +23,7 @@ from local_commands import parse_local_command
 from local_action_policy import may_execute
 from task_overview import filtered_tasks, describe_task
 from task_daily_briefing import build_daily_briefing
-from task_reminders import ReminderTracker
+from task_reminders import ReminderTracker, valid_reminder_time
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -50,9 +50,10 @@ class SherlockDesktop:
         self.selected_file_name = ""
         self.search_folder = ""
         self.searching = False
-        self.reminder_tracker = ReminderTracker()
-        self.reminders_enabled = tk.BooleanVar(value=self.load_reminders_enabled())
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
+        self.reminder_tracker = ReminderTracker(self.model_config_path.parent / "shown_reminders.json")
+        self.reminders_enabled = tk.BooleanVar(value=self.load_reminders_enabled())
+        self.reminder_time = tk.StringVar(value=self.load_reminder_time())
         self.model_choice = tk.StringVar(value=self.load_model_choice())
         self.performance = tk.StringVar(value=self.load_performance())
         root.title("Sherlock AI — личный помощник")
@@ -177,6 +178,15 @@ class SherlockDesktop:
                        command=self.save_model_choice, bg=BACKGROUND, fg=TEXT,
                        selectcolor=INPUT, activebackground=BACKGROUND,
                        activeforeground=TEXT).pack(anchor="w")
+        reminder_time_row = tk.Frame(self.settings_page, bg=BACKGROUND, padx=24)
+        reminder_time_row.pack(fill="x", pady=(8, 0))
+        tk.Label(reminder_time_row, text="Показывать после:", bg=BACKGROUND, fg=MUTED).pack(side="left")
+        self.reminder_time_picker = ttk.Combobox(
+            reminder_time_row, textvariable=self.reminder_time, width=8,
+            values=["08:00", "09:00", "10:00", "12:00", "15:00", "18:00", "20:00"],
+            state="readonly", style="Sherlock.TCombobox")
+        self.reminder_time_picker.pack(side="left", padx=(8, 0))
+        self.reminder_time_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
         tk.Label(self.settings_page,
                  text="Только в открытом приложении · проверка раз в минуту · без системных уведомлений.",
                  bg=BACKGROUND, fg=MUTED, wraplength=480, justify="left").pack(anchor="w", padx=24, pady=(3, 0))
@@ -234,7 +244,7 @@ class SherlockDesktop:
         """Read local tasks once per minute while the application is open."""
         if self.closed:
             return
-        if self.reminders_enabled.get():
+        if self.reminders_enabled.get() and time.strftime("%H:%M") >= self.reminder_time.get():
             try:
                 with OfflineWorkspace() as workspace:
                     notice = self.reminder_tracker.due_messages(workspace.list_task_details())
@@ -434,6 +444,13 @@ class SherlockDesktop:
         except (OSError, ValueError, TypeError):
             return "Тёплый"
 
+    def load_reminder_time(self) -> str:
+        try:
+            value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("reminder_time", "09:00")
+            return value if valid_reminder_time(value) else "09:00"
+        except (OSError, ValueError, TypeError):
+            return "09:00"
+
     def load_reminders_enabled(self) -> bool:
         try:
             value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("reminders_enabled", False)
@@ -452,7 +469,7 @@ class SherlockDesktop:
         try:
             self.model_config_path.parent.mkdir(parents=True, exist_ok=True)
             self.model_config_path.write_text(json.dumps({"model": self.model_choice.get(), "performance": self.performance.get(),
-                                                        "tone": self.tone.get(), "reminders_enabled": self.reminders_enabled.get()}, ensure_ascii=False), encoding="utf-8")
+                                                        "tone": self.tone.get(), "reminders_enabled": self.reminders_enabled.get(), "reminder_time": self.reminder_time.get()}, ensure_ascii=False), encoding="utf-8")
         except OSError:
             self.status.configure(text="Не удалось сохранить выбор модели.")
 
