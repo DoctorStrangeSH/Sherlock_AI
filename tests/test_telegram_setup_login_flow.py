@@ -6,7 +6,7 @@ import unittest
 
 class TelegramLoginFlowTests(unittest.TestCase):
     def test_explicit_connect_precedes_phone_code_request(self):
-        tree = ast.parse((Path(__file__).parent / "telegram_setup.py").read_text(encoding="utf-8"))
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "telegram_setup.py").read_text(encoding="utf-8"))
         auth = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "authorize")
         source = ast.unparse(auth)
         self.assertIn("await client.connect()", source)
