@@ -25,7 +25,7 @@ from local_action_policy import may_execute
 from task_overview import filtered_tasks, describe_task
 from task_daily_briefing import build_daily_briefing
 from task_planner import build_task_plan, build_day_parts, build_time_budget_plan
-from task_scheduler import build_timed_schedule, describe_current_slot, shift_saved_schedule
+from task_scheduler import build_timed_schedule, describe_current_slot, shift_saved_schedule, build_remaining_day_schedule
 from task_reminders import ReminderTracker, valid_reminder_time
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
@@ -625,6 +625,19 @@ class SherlockDesktop:
                         self.workspace_panel.refresh()
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось сохранить длительность задачи.", "assistant")
+                return
+            if command[0] == "plan_remaining":
+                if not may_execute("list_tasks"):
+                    self.append("Sherlock AI", "Просмотр задач запрещён настройками безопасности.", "assistant")
+                    return
+                try:
+                    with OfflineWorkspace() as workspace:
+                        tasks = workspace.list_task_estimates()
+                    plan = build_remaining_day_schedule(tasks, command[1])
+                    self.pending_schedule = (date.today().isoformat(), plan)
+                    self.append("Планировщик", plan, "assistant")
+                except (OSError, sqlite3.Error, ValueError) as exc:
+                    self.append("Sherlock AI", "Не удалось распланировать оставшееся время: " + str(exc), "assistant")
                 return
             if command[0] == "delay_schedule":
                 if not may_execute("view_plan"):
