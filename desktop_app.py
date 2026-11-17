@@ -67,12 +67,14 @@ class SherlockDesktop:
         self.model_choice = tk.StringVar(value=self.load_model_choice())
         self.performance = tk.StringVar(value=self.load_performance())
         root.title("Sherlock AI — личный помощник")
-        root.geometry("920x640")
-        root.minsize(620, 480)
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        root.geometry(f"{min(1120, screen_width - 40)}x{min(760, screen_height - 90)}")
+        root.minsize(780, 550)
         root.configure(bg=BACKGROUND)
         root.protocol("WM_DELETE_WINDOW", self.close)
 
-        header = tk.Frame(root, bg=BACKGROUND, padx=24, pady=18)
+        header = tk.Frame(root, bg=BACKGROUND, padx=20, pady=10)
         header.pack(fill="x")
         tk.Label(header, text="✦ Sherlock AI", font=("Segoe UI", 22, "bold"),
                  fg=TEXT, bg=BACKGROUND).pack(anchor="w")
@@ -104,21 +106,43 @@ class SherlockDesktop:
         self.chat_page = tk.Frame(self.content_area, bg=BACKGROUND)
         self.chat_page.pack(fill="both", expand=True)
         self.day_page = tk.Frame(self.content_area, bg=BACKGROUND)
-        tk.Label(self.day_page, text="Мой день", font=("Segoe UI", 20, "bold"),
+        self.day_canvas = tk.Canvas(self.day_page, bg=BACKGROUND, highlightthickness=0)
+        self.day_scrollbar = ttk.Scrollbar(self.day_page, orient="vertical",
+                                            command=self.day_canvas.yview)
+        self.day_canvas.configure(yscrollcommand=self.day_scrollbar.set)
+        self.day_scrollbar.pack(side="right", fill="y")
+        self.day_canvas.pack(side="left", fill="both", expand=True)
+        self.day_content = tk.Frame(self.day_canvas, bg=BACKGROUND)
+        self.day_canvas_window = self.day_canvas.create_window(
+            (0, 0), window=self.day_content, anchor="nw",
+        )
+        self.day_content.bind(
+            "<Configure>",
+            lambda _event: self.day_canvas.configure(
+                scrollregion=self.day_canvas.bbox("all"),
+            ),
+        )
+        self.day_canvas.bind(
+            "<Configure>",
+            lambda event: self.day_canvas.itemconfigure(
+                self.day_canvas_window, width=event.width,
+            ),
+        )
+        tk.Label(self.day_content, text="Мой день", font=("Segoe UI", 20, "bold"),
                  bg=BACKGROUND, fg=TEXT).pack(anchor="w", padx=24, pady=(22, 4))
-        tk.Label(self.day_page, text="Задачи и расписание · только локальные данные",
+        tk.Label(self.day_content, text="Задачи и расписание · только локальные данные",
                  bg=BACKGROUND, fg=MUTED).pack(anchor="w", padx=24, pady=(0, 12))
-        controls = tk.Frame(self.day_page, bg=BACKGROUND)
+        controls = tk.Frame(self.day_content, bg=BACKGROUND)
         controls.pack(fill="x", padx=24, pady=(0, 10))
         tk.Button(controls, text="↻ Обновить", command=self.refresh_day_page,
                   bg=ACCENT, fg=BACKGROUND, relief="flat", padx=12, pady=8).pack(side="left")
         tk.Button(controls, text="Все задачи", command=lambda: self.show_page("tasks"),
                   bg=INPUT, fg=TEXT, relief="flat", padx=12, pady=8).pack(side="left", padx=(8, 0))
-        self.day_summary = tk.Label(self.day_page, bg=SURFACE, fg=TEXT, justify="left",
+        self.day_summary = tk.Label(self.day_content, bg=SURFACE, fg=TEXT, justify="left",
                                     anchor="w", padx=16, pady=13, wraplength=500,
                                     font=("Segoe UI", 10, "bold"))
         self.day_summary.pack(fill="x", padx=24, pady=(0, 10))
-        metrics = tk.Frame(self.day_page, bg=BACKGROUND)
+        metrics = tk.Frame(self.day_content, bg=BACKGROUND)
         metrics.pack(fill="x", padx=24, pady=(0, 10))
         self.day_metric_values = {}
         for key, title in (("tasks", "АКТУАЛЬНЫЕ ЗАДАЧИ"),
@@ -132,9 +156,9 @@ class SherlockDesktop:
                              font=("Segoe UI", 14, "bold"))
             value.pack(anchor="w", pady=(5, 0))
             self.day_metric_values[key] = value
-        self.day_progress = ttk.Progressbar(self.day_page, mode="determinate", maximum=100)
+        self.day_progress = ttk.Progressbar(self.day_content, mode="determinate", maximum=100)
         self.day_progress.pack(fill="x", padx=24, pady=(0, 12))
-        day_tabs = tk.Frame(self.day_page, bg=BACKGROUND)
+        day_tabs = tk.Frame(self.day_content, bg=BACKGROUND)
         day_tabs.pack(fill="x", padx=24, pady=(0, 10))
         self.day_tab_buttons = {}
         for key, label in (("tasks", "Задачи и фокус"), ("analytics", "Расписание и аналитика")):
@@ -143,8 +167,8 @@ class SherlockDesktop:
                                bg=INPUT, fg=TEXT, relief="flat", padx=16, pady=9)
             button.pack(side="left", padx=(0, 8))
             self.day_tab_buttons[key] = button
-        self.day_action_panel = tk.Frame(self.day_page, bg=BACKGROUND)
-        self.day_analysis_panel = tk.Frame(self.day_page, bg=BACKGROUND)
+        self.day_action_panel = tk.Frame(self.day_content, bg=BACKGROUND)
+        self.day_analysis_panel = tk.Frame(self.day_content, bg=BACKGROUND)
         tk.Label(self.day_action_panel, text="Ближайшие задачи", bg=BACKGROUND, fg=TEXT,
                  font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=24)
         self.day_tasks = tk.Listbox(self.day_action_panel, height=5, bg=SURFACE, fg=TEXT,
@@ -342,24 +366,24 @@ class SherlockDesktop:
         self.input = tk.Text(composer, height=2, bg=INPUT, fg=TEXT,
                              insertbackground=TEXT, wrap="word", relief="flat",
                              font=("Segoe UI", 11), padx=12, pady=10)
-        self.input.pack(side="left", fill="both", expand=True)
         self.input.bind("<Control-Return>", self.send_event)
         self.send_button = tk.Button(composer, text="Отправить ↗", command=self.send,
                                      bg=ACCENT, fg=BACKGROUND, activebackground="#a8b6ff",
                                      relief="flat", padx=16, font=("Segoe UI", 10, "bold"))
         self.send_button.pack(side="right", padx=(10, 0), fill="y")
+        self.input.pack(side="left", fill="both", expand=True)
 
         footer = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24, pady=12)
         footer.pack(fill="x")
         self.status = tk.Label(footer, text="Ctrl+Enter — отправить · История только в памяти окна",
                                bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9))
-        self.status.pack(side="left")
         tk.Button(footer, text="Сохранить диалог", command=self.save_conversation,
                   bg=SURFACE, fg=TEXT, activebackground=INPUT,
                   relief="flat", padx=10).pack(side="right", padx=(0, 8))
         tk.Button(footer, text="Очистить диалог", command=self.clear,
                   bg=BACKGROUND, fg=MUTED, activebackground=SURFACE,
                   relief="flat").pack(side="right")
+        self.status.pack(side="left", fill="x", expand=True)
         self.append("Sherlock AI", "Привет! ❤️ Напиши мне что-нибудь. Для работы нужна установленная Ollama.", "assistant")
         self.show_daily_briefing()
         self.root.after(100, self.poll)
