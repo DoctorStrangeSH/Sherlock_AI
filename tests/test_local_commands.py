@@ -25,6 +25,12 @@ class LocalCommandsTests(unittest.TestCase):
         self.assertIsNone(parse_local_command("Заверши задачу 0"))
         self.assertIsNone(parse_local_command("Создай задачу: " + "x" * 301))
 
+    def test_task_filters(self):
+        self.assertEqual(parse_local_command("Покажи задачи на сегодня"),
+                         ("tasks_today", ""))
+        self.assertEqual(parse_local_command("Покажи просроченные задачи"),
+                         ("tasks_overdue", ""))
+
     def test_recent(self):
         self.assertEqual(parse_local_command("Покажи недавние файлы"), ("recent", ""))
         self.assertEqual(parse_local_command("Выведи последние документы в этой папке"),
