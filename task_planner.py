@@ -74,3 +74,45 @@ def build_day_parts(tasks, today=None, capacity=9):
             len(relevant) - max(6, min(capacity, 9))))
     lines.append("Это ориентировочные блоки, не назначенные часы. Сроки задач не изменены.")
     return "\n".join(lines)
+
+
+
+def build_time_budget_plan(tasks, budget_minutes, today=None):
+    """Suggest tasks that fit, using ONLY explicit duration estimates."""
+    if isinstance(budget_minutes, bool) or not isinstance(budget_minutes, int) or not 15 <= budget_minutes <= 1440:
+        raise ValueError("Бюджет должен быть от 15 минут до 24 часов.")
+    today = today or date.today()
+    today_iso = today.isoformat()
+    candidates = [task for task in tasks if not task[2] and
+                  ((task[4] and task[4] <= today_iso) or
+                   (not task[4] and task[3] == "high"))]
+    priority = {"high": 0, "normal": 1, "low": 2}
+    candidates.sort(key=lambda task: (
+        0 if task[4] and task[4] < today_iso else 1 if task[4] else 2,
+        priority.get(task[3], 1), task[4] or "9999-12-31", task[0],
+    ))
+    remaining = budget_minutes
+    chosen, deferred, unknown = [], [], []
+    for task in candidates:
+        estimate = task[5]
+        if estimate is None:
+            unknown.append(task)
+        elif estimate <= remaining:
+            chosen.append(task)
+            remaining -= estimate
+        else:
+            deferred.append(task)
+    lines = ["⏳ План на {} мин. · {}".format(budget_minutes, today.strftime("%d.%m.%Y"))]
+    if chosen:
+        lines.append("Вмещается в доступное время:")
+        lines.extend("• {} · ~{} мин.".format(describe_task(task, today), task[5]) for task in chosen)
+    else:
+        lines.append("Пока нет задач с известной длительностью, которые помещаются в бюджет.")
+    lines.append("Запланировано: {} мин. · Остаток: {} мин.".format(budget_minutes - remaining, remaining))
+    if deferred:
+        lines.append("Не помещаются: " + ", ".join("#{}".format(task[0]) for task in deferred[:12]))
+    if unknown:
+        lines.append("Длительность не указана: " + ", ".join("#{}".format(task[0]) for task in unknown[:12]))
+        lines.append("Укажи оценку: «Установи длительность задачи #5: 45 минут».")
+    lines.append("Это рекомендация. Расписание и сроки задач не изменены.")
+    return "\n".join(lines)
