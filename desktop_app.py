@@ -586,7 +586,7 @@ class SherlockDesktop:
                     else:
                         approved = messagebox.askyesno(
                             "Отложить напоминание?",
-                            f"Задача #{task_id}: {task[1]}\\n\\nОтложить на {minutes} мин.?",
+                            f"Задача #{task_id}: {task[1]}\n\nОтложить на {minutes} мин.?",
                             parent=self.root,
                         )
                         if may_execute("snooze_reminder", confirmed=approved):
