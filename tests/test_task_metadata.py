@@ -1,5 +1,6 @@
 """Backward-compatible task metadata migration and validation."""
 import sqlite3
+from contextlib import closing
 import tempfile
 from pathlib import Path
 import unittest
@@ -11,7 +12,7 @@ class TaskMetadataTests(unittest.TestCase):
     def test_existing_database_keeps_tasks(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "old.sqlite"
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
                 db.execute("INSERT INTO tasks (title) VALUES ('Старая задача')")
             with OfflineWorkspace(path) as workspace:
