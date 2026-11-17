@@ -11,6 +11,8 @@ NOTE = re.compile(r"^(?:создай|запиши|добавь)\s+заметку
 TASK_CREATE = re.compile(r"^(?:создай|добавь|запиши)\s+задачу\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
 TASK_TODAY = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?задачи\s+на\s+сегодня[.!?]?$", re.IGNORECASE)
 TASK_OVERDUE = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?просроченные\s+задачи[.!?]?$", re.IGNORECASE)
+TASK_DUE = re.compile(r"^(?:установи|поставь|измени)\s+срок\s+задачи\s+#?(\d{1,9})\s*:\s*(\d{4}-\d{2}-\d{2})[.!?]?$", re.IGNORECASE)
+TASK_PRIORITY = re.compile(r"^(?:установи|поставь|измени)\s+приоритет\s+задачи\s+#?(\d{1,9})\s*:\s*(низкий|обычный|высокий)[.!?]?$", re.IGNORECASE)
 TASK_LIST = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?задачи[.!?]?$", re.IGNORECASE)
 TASK_DONE = re.compile(r"^(?:выполни|заверши|отметь\s+выполненной)\s+задачу\s+#?(\d{1,9})[.!?]?$", re.IGNORECASE)
 SEARCH = re.compile(
@@ -39,6 +41,12 @@ def parse_local_command(text):
         return ("tasks_today", "")
     if TASK_OVERDUE.fullmatch(value):
         return ("tasks_overdue", "")
+    due = TASK_DUE.fullmatch(value)
+    if due and int(due.group(1)) > 0:
+        return ("set_task_due", (int(due.group(1)), due.group(2)))
+    priority = TASK_PRIORITY.fullmatch(value)
+    if priority and int(priority.group(1)) > 0:
+        return ("set_task_priority", (int(priority.group(1)), priority.group(2).lower()))
     if TASK_LIST.fullmatch(value):
         return ("list_tasks", "")
     done = TASK_DONE.fullmatch(value)
