@@ -21,6 +21,7 @@ from local_folder_search import search_text_folder
 from local_recent_files import recent_text_files, format_recent_file
 from local_commands import parse_local_command
 from local_action_policy import may_execute
+from task_overview import filtered_tasks, describe_task
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -460,19 +461,21 @@ class SherlockDesktop:
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось сохранить заметку.", "assistant")
                 return
-            if command[0] in ("create_task", "list_tasks", "complete_task"):
+            if command[0] in ("create_task", "list_tasks", "tasks_today", "tasks_overdue", "complete_task"):
                 try:
                     with OfflineWorkspace() as workspace:
-                        if command[0] == "list_tasks":
+                        if command[0] in ("list_tasks", "tasks_today", "tasks_overdue"):
                             if may_execute("list_tasks"):
-                                entries = workspace.list_task_details()[:30]
-                                priority_names = {"low": "низкий", "normal": "обычный", "high": "высокий"}
-                                lines = ["#{} {} {} · {}{}".format(
-                                    item[0], "✓" if item[2] else "○", item[1],
-                                    priority_names.get(item[3], "обычный"),
-                                    " · до " + item[4] if item[4] else "")
-                                    for item in entries]
-                                self.append("Sherlock AI", "Твои задачи:\n" + ("\n".join(lines) if lines else "Список пуст."),
+                                entries = workspace.list_task_details()
+                                labels = {"list_tasks": "Твои задачи",
+                                          "tasks_today": "Задачи на сегодня",
+                                          "tasks_overdue": "Просроченные задачи"}
+                                if command[0] != "list_tasks":
+                                    category = "today" if command[0] == "tasks_today" else "overdue"
+                                    entries = filtered_tasks(entries, category)
+                                lines = [describe_task(item) for item in entries[:30]]
+                                self.append("Sherlock AI", labels[command[0]] + ":\n" +
+                                            ("\n".join(lines) if lines else "Задач нет."),
                                             "assistant")
                         elif command[0] == "create_task":
                             confirmed = messagebox.askyesno(
