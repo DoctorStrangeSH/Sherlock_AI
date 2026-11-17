@@ -141,6 +141,24 @@ class OfflineWorkspace:
             "SELECT id, plan_date, content FROM saved_plans ORDER BY id DESC LIMIT 1"
         ).fetchone()
 
+    def list_saved_plans(self, limit=20):
+        """Recent schedule metadata only; do not load full plan contents."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("Некорректное количество расписаний.")
+        return self.conn.execute(
+            "SELECT id, plan_date, created_at FROM saved_plans ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    def get_saved_plan(self, plan_id):
+        """Read an individual saved schedule without modifying it."""
+        if not isinstance(plan_id, int) or isinstance(plan_id, bool) or plan_id <= 0:
+            raise ValueError("Некорректный номер расписания.")
+        return self.conn.execute(
+            "SELECT id, plan_date, content FROM saved_plans WHERE id = ?",
+            (plan_id,),
+        ).fetchone()
+
     def complete_task(self, task_id):
         with self.conn:
             return self.conn.execute("UPDATE tasks SET done = 1 WHERE id = ? AND done = 0", (task_id,)).rowcount > 0
