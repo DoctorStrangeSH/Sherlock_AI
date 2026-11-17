@@ -67,15 +67,21 @@ class WorkspaceWindow:
         tabs.add(self.memory_frame, text="Память")
         tabs.add(self.history_frame, text="История")
         tabs.select(initial_tab if initial_tab in (0, 1, 2, 3) else 0)
-        self.tasks = self._table(self.task_frame, ("Состояние", "Задача", "Приоритет", "Срок", "Оценка"), (100, 300, 100, 110, 90))
-        self.notes = self._table(self.note_frame, ("Заметка",), (650,))
-        self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
-        self.conversations = self._table(self.history_frame, ("Название", "Дата"), (450, 160))
         self._controls(self.task_frame, (("Добавить задачу", self.add_task),
                                          ("Изменить срок/приоритет", self.edit_task_details),
                                          ("Длительность", self.edit_task_estimate),
                                          ("Выполнено", self.complete_task),
                                          ("Удалить", self.delete_task)))
+        self.tasks_hint = tk.Label(
+            self.task_frame, text="Создай первую задачу, чтобы начать планировать день.",
+            bg=PANEL, fg=MUTED, anchor="w", padx=14, pady=12,
+            font=("Segoe UI", 10),
+        )
+        self.tasks_hint.pack(fill="x", padx=10, pady=(0, 3))
+        self.tasks = self._table(self.task_frame, ("Состояние", "Задача", "Приоритет", "Срок", "Оценка"), (100, 300, 100, 110, 90))
+        self.notes = self._table(self.note_frame, ("Заметка",), (650,))
+        self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
+        self.conversations = self._table(self.history_frame, ("Название", "Дата"), (450, 160))
         self._controls(self.note_frame, (("Новая", self.add_note),
                                          ("Изменить", self.edit_note),
                                          ("Сохранить", self.save_note),
@@ -127,14 +133,22 @@ class WorkspaceWindow:
     @staticmethod
     def _controls(parent, buttons):
         frame = ttk.Frame(parent, style="Sherlock.TFrame")
-        frame.pack(fill="x", padx=10, pady=(0, 10))
-        for text, command in buttons:
-            ttk.Button(frame, text=text, command=command,
+        frame.pack(fill="x", padx=10, pady=(8, 7))
+        row = None
+        for index, (text, command) in enumerate(buttons):
+            if index % 3 == 0:
+                row = ttk.Frame(frame, style="Sherlock.TFrame")
+                row.pack(fill="x", pady=(0, 5))
+            ttk.Button(row, text=text, command=command,
                        style="Sherlock.TButton").pack(side="left", padx=(0, 8))
 
     def refresh(self):
         self.tasks.delete(*self.tasks.get_children())
         tasks = self.store.list_tasks()
+        if tasks:
+            self.tasks_hint.pack_forget()
+        else:
+            self.tasks_hint.pack(fill="x", padx=10, pady=(0, 3), before=self.tasks)
         priority_labels = {"low": "Низкий", "normal": "Обычный", "high": "Высокий"}
         detailed_tasks = self.store.list_task_estimates()
         states = {"done": "✓ Готово", "overdue": "⚠ Просрочено",
