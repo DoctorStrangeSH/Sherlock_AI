@@ -634,6 +634,7 @@ class SherlockDesktop:
                         focus_suggestions = workspace.focus_duration_recommendations(date.today().isoformat())
                         focus_week_days = workspace.focus_last_seven_days(date.today().isoformat())
                         workload = workspace.day_workload_snapshot(date.today().isoformat())
+                        rebalance = workspace.suggest_day_rebalance(date.today().isoformat())
                     else:
                         focus_count, focus_seconds = 0, 0
                         week_count, week_seconds = 0, 0
@@ -643,6 +644,7 @@ class SherlockDesktop:
                         focus_suggestions = []
                         focus_week_days = []
                         workload = None
+                        rebalance = None
                 now = datetime.now()
                 summary, status, tasks_text, timeline = build_day_overview(
                     tasks, saved, now=now)
@@ -723,8 +725,29 @@ class SherlockDesktop:
                             workload_text += "\n⚠ Возможно, день перегружен. Проверь приоритеты и перерывы."
                         else:
                             workload_text += "\nПо сохранённым данным явного превышения не видно."
+                if rebalance is None:
+                    rebalance_text = "Предложения недоступны."
+                else:
+                    excess, candidates, remaining = rebalance
+                    if not excess:
+                        rebalance_text = "Сейчас нет оснований предлагать перенос."
+                    elif not candidates:
+                        rebalance_text = "Перегрузка есть, но подходящих несрочных задач на сегодня нет."
+                    else:
+                        rebalance_text = "\n".join(
+                            f"• #{task_id} {title[:40]} · {minutes} мин · "
+                            f"{'низкий' if priority == 'low' else 'обычный'} приоритет"
+                            for task_id, title, minutes, priority in candidates
+                        )
+                        rebalance_text += (
+                            f"\nИзбыток оценки над обычным фокус-временем: {excess} мин."
+                            "\nЭто лишь предложение. Сроки задач не изменены."
+                        )
+                        if remaining:
+                            rebalance_text += f"\nОстанется нераспределённым: {remaining} мин."
                 sections = ("СЕЙЧАС\n" + status +
                             "\n\nОЦЕНКА НАГРУЗКИ · ТОЛЬКО ПОДСКАЗКА\n" + workload_text +
+                            "\n\nВОЗМОЖНЫЙ ПЕРЕНОС · БЕЗ ИЗМЕНЕНИЙ\n" + rebalance_text +
                             "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
                             "\n\nВРЕМЕННАЯ ШКАЛА\n" + timeline +
                             "\n\nФОКУС ЗА 7 ДНЕЙ\n" +
