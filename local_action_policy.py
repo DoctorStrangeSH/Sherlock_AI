@@ -2,8 +2,8 @@
 
 Unknown actions are denied by default. Confirmation does not persist as a grant.
 """
-READ_ONLY = frozenset({"search_files", "recent_files", "preview_file"})
-CONFIRM = frozenset({"save_note", "save_memory", "analyze_file"})
+READ_ONLY = frozenset({"search_files", "recent_files", "preview_file", "list_tasks"})
+CONFIRM = frozenset({"save_note", "save_memory", "analyze_file", "create_task", "complete_task"})
 DENIED = frozenset({"delete_file", "rename_file", "run_program", "shell_command"})
 
 
