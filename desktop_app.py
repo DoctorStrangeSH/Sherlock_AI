@@ -117,6 +117,20 @@ class SherlockDesktop:
                                     anchor="w", padx=16, pady=13, wraplength=500,
                                     font=("Segoe UI", 10, "bold"))
         self.day_summary.pack(fill="x", padx=24, pady=(0, 10))
+        metrics = tk.Frame(self.day_page, bg=BACKGROUND)
+        metrics.pack(fill="x", padx=24, pady=(0, 10))
+        self.day_metric_values = {}
+        for key, title in (("tasks", "АКТУАЛЬНЫЕ ЗАДАЧИ"),
+                           ("focus", "ФОКУС СЕГОДНЯ"),
+                           ("load", "ОЦЕНКА НАГРУЗКИ")):
+            card = tk.Frame(metrics, bg=SURFACE, padx=13, pady=10)
+            card.pack(side="left", fill="x", expand=True, padx=(0, 7))
+            tk.Label(card, text=title, bg=SURFACE, fg=MUTED,
+                     font=("Segoe UI", 8, "bold")).pack(anchor="w")
+            value = tk.Label(card, text="—", bg=SURFACE, fg=TEXT,
+                             font=("Segoe UI", 14, "bold"))
+            value.pack(anchor="w", pady=(5, 0))
+            self.day_metric_values[key] = value
         self.day_progress = ttk.Progressbar(self.day_page, mode="determinate", maximum=100)
         self.day_progress.pack(fill="x", padx=24, pady=(0, 12))
         day_tabs = tk.Frame(self.day_page, bg=BACKGROUND)
@@ -697,6 +711,8 @@ class SherlockDesktop:
         self.day_rebalance_date = None
         self.day_rebalance_tasks.delete(0, "end")
         self.day_progress["value"] = 0
+        for value in self.day_metric_values.values():
+            value.configure(text="—", fg=TEXT)
         if not may_execute("view_plan") or not may_execute("list_tasks"):
             self.day_summary.configure(text="Доступ к данным ограничен")
             sections = "Просмотр задач или расписания запрещён настройками безопасности."
@@ -755,6 +771,27 @@ class SherlockDesktop:
                         self.day_tasks.itemconfig(index, fg="#ffd38a")
                     if task_id == selected_id:
                         self.day_tasks.selection_set(index)
+                self.day_metric_values["tasks"].configure(
+                    text=f"{sum(not item[2] for item in relevant)} открыто",
+                    fg="#ffb0a5" if any(not item[2] and item[4] < now.date().isoformat() for item in relevant)
+                    else TEXT,
+                )
+                self.day_metric_values["focus"].configure(
+                    text=f"{focus_seconds // 3600} ч {(focus_seconds % 3600) // 60} мин",
+                    fg="#a9f6ce",
+                )
+                if workload is None:
+                    self.day_metric_values["load"].configure(text="Нет данных")
+                else:
+                    total_minutes, _, unknown_tasks, typical_minutes, _ = workload
+                    is_overloaded = (typical_minutes is not None and not unknown_tasks
+                                     and total_minutes > typical_minutes * 1.2
+                                     and total_minutes - typical_minutes >= 30)
+                    self.day_metric_values["load"].configure(
+                        text=f"{total_minutes // 60} ч {total_minutes % 60} мин"
+                             + (" +" if unknown_tasks else ""),
+                        fg="#ffb0a5" if is_overloaded else "#ffd38a" if unknown_tasks else TEXT,
+                    )
                 self.day_summary.configure(
                     text=summary + f"\nФокус сегодня: {focus_seconds // 3600} ч "
                          f"{(focus_seconds % 3600) // 60} мин · сессий: {focus_count}")
