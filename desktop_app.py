@@ -55,6 +55,7 @@ class SherlockDesktop:
         self.search_folder = ""
         self.searching = False
         self.pending_schedule = None
+        self.current_page = "chat"
         self.reminder_popup = None
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.reminder_tracker = ReminderTracker(self.model_config_path.parent / "shown_reminders.json")
@@ -127,6 +128,9 @@ class SherlockDesktop:
         tk.Button(self.day_page, text="✓ Отметить выбранную выполненной",
                   command=self.complete_day_task, bg=INPUT, fg=TEXT, relief="flat",
                   padx=12, pady=7).pack(anchor="w", padx=24, pady=(0, 12))
+        self.day_feedback = tk.Label(self.day_page, text="", bg=BACKGROUND, fg=MUTED,
+                                     anchor="w", justify="left")
+        self.day_feedback.pack(fill="x", padx=24, pady=(0, 5))
         self.day_text = ScrolledText(self.day_page, wrap="word", bg=SURFACE, fg=TEXT,
                                     font=("Segoe UI", 10), relief="flat", padx=16,
                                     pady=14, state="disabled")
@@ -265,6 +269,7 @@ class SherlockDesktop:
         self.show_daily_briefing()
         self.root.after(100, self.poll)
         self.root.after(60_000, self.check_reminders)
+        self.root.after(60_000, self.tick_day_page)
         threading.Thread(target=self.check_model, daemon=True).start()
         self.input.focus_set()
 
@@ -486,7 +491,7 @@ class SherlockDesktop:
     def complete_day_task(self) -> None:
         selection = self.day_tasks.curselection()
         if not selection or selection[0] >= len(self.day_task_rows):
-            self.status.configure(text="Сначала выбери задачу из списка «Мой день».")
+            self.day_feedback.configure(text="Сначала выбери задачу из списка.")
             return
         task_id, title = self.day_task_rows[selection[0]]
         approved = messagebox.askyesno(
@@ -499,12 +504,23 @@ class SherlockDesktop:
         try:
             with OfflineWorkspace() as workspace:
                 changed = workspace.complete_task(task_id)
-            self.status.configure(text="Задача завершена." if changed else "Задача уже завершена или удалена.")
+            self.day_feedback.configure(text="Задача завершена." if changed else "Задача уже завершена или удалена.")
             self.refresh_day_page()
         except (OSError, sqlite3.Error):
-            self.status.configure(text="Не удалось изменить задачу.")
+            self.day_feedback.configure(text="Не удалось изменить задачу.")
+
+    def tick_day_page(self) -> None:
+        """Refresh only the visible planner; stop scheduling on window close."""
+        if self.closed:
+            return
+        if self.current_page == "day":
+            self.refresh_day_page()
+        self.root.after(60_000, self.tick_day_page)
 
     def refresh_day_page(self) -> None:
+        selected = self.day_tasks.curselection()
+        selected_id = (self.day_task_rows[selected[0]][0]
+                       if selected and selected[0] < len(self.day_task_rows) else None)
         self.day_task_rows = []
         self.day_tasks.delete(0, "end")
         self.day_progress["value"] = 0
@@ -527,8 +543,17 @@ class SherlockDesktop:
                     key=lambda item: (item[4], {"high": 0, "normal": 1, "low": 2}.get(item[3], 1), item[0]),
                 )[:12]
                 self.day_task_rows = [(item[0], item[1]) for item in open_tasks]
-                for task_id, title in self.day_task_rows:
-                    self.day_tasks.insert("end", f"#{task_id} · {title}")
+                for index, item in enumerate(open_tasks):
+                    task_id, title, _, priority, due_date = item
+                    overdue = due_date < now.date().isoformat()
+                    badge = "⚠ ПРОСРОЧЕНО" if overdue else ("● СРОЧНО" if priority == "high" else "· Сегодня")
+                    self.day_tasks.insert("end", f"{badge}  #{task_id} · {title}")
+                    if overdue:
+                        self.day_tasks.itemconfig(index, fg="#ffb0a5")
+                    elif priority == "high":
+                        self.day_tasks.itemconfig(index, fg="#ffd38a")
+                    if task_id == selected_id:
+                        self.day_tasks.selection_set(index)
                 self.day_summary.configure(text=summary)
                 sections = ("СЕЙЧАС\n" + status +
                             "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
@@ -542,6 +567,7 @@ class SherlockDesktop:
         self.day_text.configure(state="disabled")
 
     def show_page(self, page: str) -> None:
+        self.current_page = page
         for name, button in self.nav_buttons.items():
             button.configure(bg=INPUT if name == page else "#10182a")
         self.chat_page.pack_forget()
