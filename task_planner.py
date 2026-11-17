@@ -39,3 +39,38 @@ def build_task_plan(tasks, period="today", today=None, limit=12):
         lines.append("…ещё {} задач(и) в разделе «Задачи».".format(remaining))
     lines.append("Порядок рекомендательный: просроченные и ближайшие сроки — первыми.")
     return "\n".join(lines)
+
+
+
+def build_day_parts(tasks, today=None, capacity=9):
+    """Suggest morning/day/evening groups; no task durations or start times assumed."""
+    today = today or date.today()
+    today_iso = today.isoformat()
+    relevant = [
+        task for task in tasks
+        if not task[2] and (
+            (task[4] is not None and task[4] <= today_iso)
+            or (not task[4] and task[3] == "high")
+        )
+    ]
+    priority = {"high": 0, "normal": 1, "low": 2}
+    relevant.sort(key=lambda task: (
+        0 if task_bucket(task, today) == "overdue" else
+        1 if task[4] == today_iso else 2,
+        priority.get(task[3], 1), task[4] or "9999-12-31", task[0],
+    ))
+    lines = ["🕘 Предложение на " + today.strftime("%d.%m.%Y")]
+    if not relevant:
+        return "\n".join(lines + ["На сегодня нет срочных задач."])
+    groups = (("🌅 Утро", relevant[:3]), ("☀ День", relevant[3:6]),
+              ("🌙 Вечер", relevant[6:max(6, min(capacity, 9))]))
+    for heading, items in groups:
+        lines.append(heading)
+        lines.extend("• " + describe_task(task, today) for task in items)
+        if not items:
+            lines.append("• Свободное время")
+    if len(relevant) > max(6, min(capacity, 9)):
+        lines.append("⚠ Дополнительно осталось {} задач(и). День может быть перегружен.".format(
+            len(relevant) - max(6, min(capacity, 9))))
+    lines.append("Это ориентировочные блоки, не назначенные часы. Сроки задач не изменены.")
+    return "\n".join(lines)
