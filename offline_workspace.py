@@ -291,6 +291,32 @@ class OfflineWorkspace:
         return (sum(known), len(known), len(rows) - len(known),
                 typical_minutes, len(history))
 
+    def suggest_day_rebalance(self, day, limit=5):
+        """Read-only deferral ideas: never touch overdue or high-priority tasks."""
+        self._validate_task_meta("normal", day)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
+            raise ValueError("Некорректное количество предложений.")
+        planned, _, unknown, typical, _ = self.day_workload_snapshot(day)
+        if typical is None or unknown or planned <= typical * 1.2 or planned - typical < 30:
+            return (0, [], 0)
+        excess = planned - typical
+        rows = self.conn.execute(
+            "SELECT id, title, estimated_minutes, priority FROM tasks "
+            "WHERE done = 0 AND due_date = ? "
+            "AND priority IN ('low', 'normal') AND estimated_minutes IS NOT NULL "
+            "ORDER BY CASE priority WHEN 'low' THEN 0 ELSE 1 END, "
+            "estimated_minutes DESC, id",
+            (day,),
+        ).fetchall()
+        proposed = []
+        remaining = excess
+        for task_id, title, minutes, priority in rows:
+            if remaining <= 0 or len(proposed) >= limit:
+                break
+            proposed.append((task_id, title, minutes, priority))
+            remaining -= minutes
+        return (excess, proposed, max(0, remaining))
+
     def nonurgent_tasks_due(self, day):
         """Only open, non-high-priority tasks due exactly on the selected day."""
         self._validate_task_meta("normal", day)
