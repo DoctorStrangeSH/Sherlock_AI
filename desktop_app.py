@@ -22,6 +22,7 @@ from local_recent_files import recent_text_files, format_recent_file
 from local_commands import parse_local_command
 from local_action_policy import may_execute
 from task_overview import filtered_tasks, describe_task
+from task_daily_briefing import build_daily_briefing
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -200,9 +201,20 @@ class SherlockDesktop:
                   bg=BACKGROUND, fg=MUTED, activebackground=SURFACE,
                   relief="flat").pack(side="right")
         self.append("Sherlock AI", "Привет! ❤️ Напиши мне что-нибудь. Для работы нужна установленная Ollama.", "assistant")
+        self.show_daily_briefing()
         self.root.after(100, self.poll)
         threading.Thread(target=self.check_model, daemon=True).start()
         self.input.focus_set()
+
+    def show_daily_briefing(self) -> None:
+        """Show only locally stored urgent tasks; startup must survive a DB error."""
+        try:
+            with OfflineWorkspace() as workspace:
+                briefing = build_daily_briefing(workspace.list_task_details())
+        except (OSError, sqlite3.Error, ValueError):
+            return
+        if briefing:
+            self.append("План на день", briefing, "assistant")
 
     def open_local_file(self) -> None:
         path = filedialog.askopenfilename(parent=self.root, title="Выбрать текстовый файл",
