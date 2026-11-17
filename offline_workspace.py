@@ -199,6 +199,21 @@ class OfflineWorkspace:
             (first_day, ending_day, first_day, ending_day, limit),
         ).fetchall()
 
+    def focus_estimate_comparison(self, session_date, limit=8):
+        """Compare today's saved focus time with current task estimates."""
+        self._validate_task_meta("normal", session_date)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 30:
+            raise ValueError("Некорректное количество задач.")
+        return self.conn.execute(
+            "SELECT t.id, t.title, t.estimated_minutes, "
+            "SUM(f.duration_seconds) AS actual_seconds "
+            "FROM focus_sessions AS f JOIN tasks AS t ON t.id = f.task_id "
+            "WHERE f.session_date = ? AND t.estimated_minutes IS NOT NULL "
+            "GROUP BY t.id, t.title, t.estimated_minutes "
+            "ORDER BY actual_seconds DESC, t.id ASC LIMIT ?",
+            (session_date, limit),
+        ).fetchall()
+
     def nonurgent_tasks_due(self, day):
         """Only open, non-high-priority tasks due exactly on the selected day."""
         self._validate_task_meta("normal", day)
