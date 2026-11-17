@@ -14,6 +14,8 @@ TASK_OVERDUE = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?пр�
 TASK_DUE = re.compile(r"^(?:установи|поставь|измени)\s+срок\s+задачи\s+#?(\d{1,9})\s*:\s*(\d{4}-\d{2}-\d{2})[.!?]?$", re.IGNORECASE)
 TASK_PRIORITY = re.compile(r"^(?:установи|поставь|измени)\s+приоритет\s+задачи\s+#?(\d{1,9})\s*:\s*(низкий|обычный|высокий)[.!?]?$", re.IGNORECASE)
 REMINDER_SNOOZE = re.compile(r"^(?:отложи|перенеси)\s+напоминание\s+(?:по\s+задаче\s+)?#?(\d{1,9})\s+на\s+(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)\s*[.!?]?$", re.IGNORECASE)
+PLAN_SAVE = re.compile(r"^(?:сохрани|запомни)\s+(?:это\s+)?расписание[.!?]?$", re.IGNORECASE)
+PLAN_SHOW = re.compile(r"^(?:покажи|открой)\s+(?:моё\s+)?сохран[её]нное\s+расписание[.!?]?$", re.IGNORECASE)
 TASK_SCHEDULE = re.compile(
     r"^(?:составь|сделай|предложи)\s+расписание\s+с\s+(\d{2}:\d{2})\s+на\s+"
     r"(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)"
@@ -49,6 +51,10 @@ def parse_local_command(text):
         title = task.group(1).strip()
         if 1 <= len(title) <= 300:
             return ("create_task", title)
+    if PLAN_SAVE.fullmatch(value):
+        return ("save_schedule", "")
+    if PLAN_SHOW.fullmatch(value):
+        return ("show_saved_schedule", "")
     schedule = TASK_SCHEDULE.fullmatch(value)
     if schedule:
         amount = int(schedule.group(2))
