@@ -633,6 +633,7 @@ class SherlockDesktop:
                         focus_vs_estimate = workspace.focus_estimate_comparison(date.today().isoformat())
                         focus_suggestions = workspace.focus_duration_recommendations(date.today().isoformat())
                         focus_week_days = workspace.focus_last_seven_days(date.today().isoformat())
+                        workload = workspace.day_workload_snapshot(date.today().isoformat())
                     else:
                         focus_count, focus_seconds = 0, 0
                         week_count, week_seconds = 0, 0
@@ -641,6 +642,7 @@ class SherlockDesktop:
                         focus_vs_estimate = []
                         focus_suggestions = []
                         focus_week_days = []
+                        workload = None
                 now = datetime.now()
                 summary, status, tasks_text, timeline = build_day_overview(
                     tasks, saved, now=now)
@@ -698,7 +700,31 @@ class SherlockDesktop:
                     f"{seconds // 3600} ч {(seconds % 3600) // 60} мин"
                     for day, seconds in focus_week_days
                 ) if focus_week_days else "Статистика недоступна."
+                if workload is None:
+                    workload_text = "Оценка нагрузки недоступна."
+                else:
+                    minutes, known_tasks, unknown_tasks, typical, active_days = workload
+                    workload_text = (
+                        f"Срочные и просроченные открытые задачи: "
+                        f"{minutes // 60} ч {minutes % 60} мин "
+                        f"(с оценкой: {known_tasks}, без оценки: {unknown_tasks})."
+                    )
+                    if typical is None:
+                        workload_text += "\nПока недостаточно истории для сравнения (нужно 3 дня активности)."
+                    else:
+                        workload_text += (
+                            f"\nТипичное сохранённое фокус-время: "
+                            f"{typical // 60} ч {typical % 60} мин/день "
+                            f"(дней: {active_days})."
+                        )
+                        if unknown_tasks:
+                            workload_text += "\nЧасть задач без оценки; полная нагрузка неизвестна."
+                        elif minutes > typical * 1.2 and minutes - typical >= 30:
+                            workload_text += "\n⚠ Возможно, день перегружен. Проверь приоритеты и перерывы."
+                        else:
+                            workload_text += "\nПо сохранённым данным явного превышения не видно."
                 sections = ("СЕЙЧАС\n" + status +
+                            "\n\nОЦЕНКА НАГРУЗКИ · ТОЛЬКО ПОДСКАЗКА\n" + workload_text +
                             "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
                             "\n\nВРЕМЕННАЯ ШКАЛА\n" + timeline +
                             "\n\nФОКУС ЗА 7 ДНЕЙ\n" +
