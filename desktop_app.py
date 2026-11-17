@@ -465,9 +465,13 @@ class SherlockDesktop:
                     with OfflineWorkspace() as workspace:
                         if command[0] == "list_tasks":
                             if may_execute("list_tasks"):
-                                entries = workspace.list_tasks()[:30]
-                                lines = ["#{} {} {}".format(item[0], "✓" if item[2] else "○", item[1])
-                                         for item in entries]
+                                entries = workspace.list_task_details()[:30]
+                                priority_names = {"low": "низкий", "normal": "обычный", "high": "высокий"}
+                                lines = ["#{} {} {} · {}{}".format(
+                                    item[0], "✓" if item[2] else "○", item[1],
+                                    priority_names.get(item[3], "обычный"),
+                                    " · до " + item[4] if item[4] else "")
+                                    for item in entries]
                                 self.append("Sherlock AI", "Твои задачи:\n" + ("\n".join(lines) if lines else "Список пуст."),
                                             "assistant")
                         elif command[0] == "create_task":
