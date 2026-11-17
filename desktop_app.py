@@ -119,36 +119,47 @@ class SherlockDesktop:
         self.day_summary.pack(fill="x", padx=24, pady=(0, 10))
         self.day_progress = ttk.Progressbar(self.day_page, mode="determinate", maximum=100)
         self.day_progress.pack(fill="x", padx=24, pady=(0, 12))
-        tk.Label(self.day_page, text="Ближайшие задачи", bg=BACKGROUND, fg=TEXT,
+        day_tabs = tk.Frame(self.day_page, bg=BACKGROUND)
+        day_tabs.pack(fill="x", padx=24, pady=(0, 10))
+        self.day_tab_buttons = {}
+        for key, label in (("tasks", "Задачи и фокус"), ("analytics", "Расписание и аналитика")):
+            button = tk.Button(day_tabs, text=label,
+                               command=lambda tab=key: self.show_day_panel(tab),
+                               bg=INPUT, fg=TEXT, relief="flat", padx=16, pady=9)
+            button.pack(side="left", padx=(0, 8))
+            self.day_tab_buttons[key] = button
+        self.day_action_panel = tk.Frame(self.day_page, bg=BACKGROUND)
+        self.day_analysis_panel = tk.Frame(self.day_page, bg=BACKGROUND)
+        tk.Label(self.day_action_panel, text="Ближайшие задачи", bg=BACKGROUND, fg=TEXT,
                  font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=24)
-        self.day_tasks = tk.Listbox(self.day_page, height=5, bg=SURFACE, fg=TEXT,
+        self.day_tasks = tk.Listbox(self.day_action_panel, height=5, bg=SURFACE, fg=TEXT,
                                     selectbackground=ACCENT, selectforeground=BACKGROUND,
                                     borderwidth=0, highlightthickness=0,
                                     font=("Segoe UI", 10))
         self.day_tasks.pack(fill="x", padx=24, pady=(7, 7))
         self.day_task_rows = []
-        self.focus_label = tk.Label(self.day_page, text="Фокус · таймер не запущен",
+        self.focus_label = tk.Label(self.day_action_panel, text="Фокус · таймер не запущен",
                                     bg=BACKGROUND, fg="#a9f6ce", anchor="w",
                                     font=("Segoe UI", 11, "bold"))
         self.focus_label.pack(fill="x", padx=24, pady=(0, 7))
-        focus_controls = tk.Frame(self.day_page, bg=BACKGROUND)
+        focus_controls = tk.Frame(self.day_action_panel, bg=BACKGROUND)
         focus_controls.pack(fill="x", padx=24, pady=(0, 8))
         for label, action in (("▶ Начать", self.start_focus),
                               ("Ⅱ Пауза / продолжить", self.toggle_focus),
                               ("■ Завершить сессию", self.finish_focus)):
             tk.Button(focus_controls, text=label, command=action, bg=INPUT, fg=TEXT,
                       relief="flat", padx=8, pady=7).pack(side="left", padx=(0, 6))
-        tk.Button(self.day_page, text="✓ Отметить выбранную выполненной",
+        tk.Button(self.day_action_panel, text="✓ Отметить выбранную выполненной",
                   command=self.complete_day_task, bg=INPUT, fg=TEXT, relief="flat",
                   padx=12, pady=7).pack(anchor="w", padx=24, pady=(0, 12))
-        self.day_feedback = tk.Label(self.day_page, text="", bg=BACKGROUND, fg=MUTED,
+        self.day_feedback = tk.Label(self.day_action_panel, text="", bg=BACKGROUND, fg=MUTED,
                                      anchor="w", justify="left")
         self.day_feedback.pack(fill="x", padx=24, pady=(0, 5))
-        tk.Label(self.day_page, text="Предложенные задачи для переноса",
+        tk.Label(self.day_action_panel, text="Предложенные задачи для переноса",
                  bg=BACKGROUND, fg=TEXT,
                  font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=24)
         self.day_rebalance_tasks = tk.Listbox(
-            self.day_page, height=3, selectmode="extended",
+            self.day_action_panel, height=3, selectmode="extended",
             bg=SURFACE, fg=TEXT, selectbackground=ACCENT,
             selectforeground=BACKGROUND, borderwidth=0,
             highlightthickness=0, exportselection=False,
@@ -157,11 +168,11 @@ class SherlockDesktop:
         self.day_rebalance_tasks.pack(fill="x", padx=24, pady=(5, 6))
         self.day_rebalance_rows = []
         self.day_rebalance_date = None
-        tk.Button(self.day_page, text="→ Предпросмотр и перенос выбранных на завтра",
+        tk.Button(self.day_action_panel, text="→ Предпросмотр и перенос выбранных на завтра",
                   command=self.confirm_day_rebalance, bg=INPUT, fg=TEXT,
                   relief="flat", padx=12, pady=7).pack(
                       anchor="w", padx=24, pady=(0, 10))
-        self.day_text = ScrolledText(self.day_page, wrap="word", bg=SURFACE, fg=TEXT,
+        self.day_text = ScrolledText(self.day_analysis_panel, wrap="word", bg=SURFACE, fg=TEXT,
                                     font=("Segoe UI", 10), relief="flat", padx=16,
                                     pady=14, state="disabled")
         self.day_text.pack(fill="both", expand=True, padx=24, pady=(0, 18))
@@ -169,6 +180,7 @@ class SherlockDesktop:
                                     background="#203a39", font=("Segoe UI", 10, "bold"))
         self.day_text.tag_configure("past_block", foreground="#7e90ad")
         self.day_text.tag_configure("future_block", foreground="#d2dcff")
+        self.show_day_panel("tasks")
         self.tools_page = tk.Frame(self.content_area, bg=BACKGROUND)
         tk.Label(self.tools_page, text="Локальные инструменты", bg=BACKGROUND, fg=TEXT,
                  font=("Segoe UI", 19, "bold")).pack(anchor="w", padx=24, pady=(22, 7))
@@ -618,6 +630,18 @@ class SherlockDesktop:
             self.refresh_day_page()
         except (OSError, sqlite3.Error):
             self.day_feedback.configure(text="Не удалось изменить задачу.")
+
+    def show_day_panel(self, panel: str) -> None:
+        """Switch visible day content without rebuilding widgets or losing state."""
+        if panel not in ("tasks", "analytics"):
+            return
+        self.day_action_panel.pack_forget()
+        self.day_analysis_panel.pack_forget()
+        target = self.day_action_panel if panel == "tasks" else self.day_analysis_panel
+        target.pack(fill="both", expand=True)
+        for name, button in self.day_tab_buttons.items():
+            button.configure(bg=ACCENT if name == panel else INPUT,
+                             fg=BACKGROUND if name == panel else TEXT)
 
     def confirm_day_rebalance(self) -> None:
         """Show exact due-date changes and require explicit approval."""
