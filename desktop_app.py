@@ -50,6 +50,7 @@ class SherlockDesktop:
         self.selected_file_name = ""
         self.search_folder = ""
         self.searching = False
+        self.reminder_popup = None
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.reminder_tracker = ReminderTracker(self.model_config_path.parent / "shown_reminders.json")
         self.reminders_enabled = tk.BooleanVar(value=self.load_reminders_enabled())
@@ -252,7 +253,46 @@ class SherlockDesktop:
                 notice = ""
             if notice:
                 self.append("Напоминание", notice, "assistant")
+                self.show_reminder_popup(notice, tuple(self.reminder_tracker.last_displayed_ids))
         self.root.after(60_000, self.check_reminders)
+
+    def show_reminder_popup(self, notice: str, task_ids: tuple) -> None:
+        """Small in-app desktop popup, without OS permissions or dependencies."""
+        if self.reminder_popup is not None:
+            try:
+                self.reminder_popup.destroy()
+            except tk.TclError:
+                pass
+        popup = tk.Toplevel(self.root)
+        self.reminder_popup = popup
+        popup.title("Sherlock AI · Напоминание")
+        popup.configure(bg=SURFACE)
+        popup.resizable(False, False)
+        popup.attributes("-topmost", True)
+        width, height = 390, 220
+        x = max(0, popup.winfo_screenwidth() - width - 35)
+        y = max(0, popup.winfo_screenheight() - height - 85)
+        popup.geometry(f"{width}x{height}+{x}+{y}")
+        tk.Label(popup, text="⏰ Sherlock AI напоминает", bg=SURFACE, fg=TEXT,
+                 font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=15, pady=(13, 5))
+        tk.Label(popup, text=notice[:650], bg=SURFACE, fg=TEXT, justify="left",
+                 wraplength=355, font=("Segoe UI", 9)).pack(anchor="w", padx=15)
+        controls = tk.Frame(popup, bg=SURFACE)
+        controls.pack(side="bottom", fill="x", padx=15, pady=12)
+        tk.Button(controls, text="Отложить на 2 часа",
+                  command=lambda: self.snooze_reminder_popup(task_ids, popup),
+                  bg=ACCENT, fg=BACKGROUND, relief="flat", padx=8).pack(side="left")
+        tk.Button(controls, text="Закрыть", command=popup.destroy,
+                  bg=INPUT, fg=TEXT, relief="flat", padx=8).pack(side="right")
+        popup.after(30_000, lambda: popup.destroy() if popup.winfo_exists() else None)
+
+    def snooze_reminder_popup(self, task_ids: tuple, popup: tk.Toplevel) -> None:
+        try:
+            self.reminder_tracker.snooze(task_ids, hours=2)
+            self.append("Sherlock AI", "Напоминания по выбранным задачам отложены на 2 часа.", "assistant")
+        except (OSError, ValueError):
+            self.append("Sherlock AI", "Не удалось отложить напоминания.", "assistant")
+        popup.destroy()
 
     def open_local_file(self) -> None:
         path = filedialog.askopenfilename(parent=self.root, title="Выбрать текстовый файл",
