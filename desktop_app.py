@@ -571,6 +571,34 @@ class SherlockDesktop:
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось сохранить заметку.", "assistant")
                 return
+            if command[0] == "snooze_reminder":
+                task_id, minutes = command[1]
+                try:
+                    with OfflineWorkspace() as workspace:
+                        task = next((entry for entry in workspace.list_task_details()
+                                     if entry[0] == task_id), None)
+                    if task is None:
+                        self.append("Sherlock AI", f"Задача #{task_id} не найдена.", "assistant")
+                    elif task[2]:
+                        self.append("Sherlock AI", f"Задача #{task_id} уже выполнена.", "assistant")
+                    elif not task[4]:
+                        self.append("Sherlock AI", "У этой задачи нет срока — напоминание пока не назначено.", "assistant")
+                    else:
+                        approved = messagebox.askyesno(
+                            "Отложить напоминание?",
+                            f"Задача #{task_id}: {task[1]}\\n\\nОтложить на {minutes} мин.?",
+                            parent=self.root,
+                        )
+                        if may_execute("snooze_reminder", confirmed=approved):
+                            self.reminder_tracker.snooze([task_id], minutes=minutes)
+                            self.append("Sherlock AI",
+                                        f"Напоминание о задаче #{task_id} отложено на {minutes} мин.",
+                                        "assistant")
+                        else:
+                            self.append("Sherlock AI", "Напоминание не изменено.", "assistant")
+                except (OSError, sqlite3.Error, ValueError):
+                    self.append("Sherlock AI", "Не удалось отложить напоминание.", "assistant")
+                return
             if command[0] in ("create_task", "list_tasks", "tasks_today", "tasks_overdue", "complete_task", "set_task_due", "set_task_priority"):
                 try:
                     with OfflineWorkspace() as workspace:
