@@ -7,6 +7,7 @@ from pathlib import Path
 import time
 import queue
 import sqlite3
+from datetime import date
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -52,6 +53,7 @@ class SherlockDesktop:
         self.selected_file_name = ""
         self.search_folder = ""
         self.searching = False
+        self.pending_schedule = None
         self.reminder_popup = None
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.reminder_tracker = ReminderTracker(self.model_config_path.parent / "shown_reminders.json")
@@ -624,6 +626,42 @@ class SherlockDesktop:
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось сохранить длительность задачи.", "assistant")
                 return
+            if command[0] == "show_saved_schedule":
+                if not may_execute("view_plan"):
+                    self.append("Sherlock AI", "Просмотр плана запрещён настройками безопасности.", "assistant")
+                    return
+                try:
+                    with OfflineWorkspace() as workspace:
+                        saved = workspace.latest_plan()
+                    self.append("Сохранённый план",
+                                saved[2] if saved else "Пока нет сохранённого расписания.",
+                                "assistant")
+                except (OSError, sqlite3.Error):
+                    self.append("Sherlock AI", "Не удалось открыть сохранённый план.", "assistant")
+                return
+            if command[0] == "save_schedule":
+                if self.pending_schedule is None:
+                    self.append("Sherlock AI", "Сначала составь расписание с указанием времени начала.", "assistant")
+                    return
+                plan_date, content = self.pending_schedule
+                approved = messagebox.askyesno(
+                    "Сохранить расписание?",
+                    "Сохранить последнее предложенное расписание в локальной базе?\n\n" + content[:500],
+                    parent=self.root,
+                )
+                if not may_execute("save_plan", confirmed=approved):
+                    self.append("Sherlock AI", "Расписание не сохранено.", "assistant")
+                    return
+                try:
+                    with OfflineWorkspace() as workspace:
+                        plan_id = workspace.save_plan(plan_date, content)
+                    self.pending_schedule = None
+                    self.append("Sherlock AI",
+                                f"Расписание сохранено локально (план #{plan_id}). Его можно открыть командой «Покажи сохранённое расписание».",
+                                "assistant")
+                except (OSError, sqlite3.Error, ValueError):
+                    self.append("Sherlock AI", "Не удалось сохранить расписание.", "assistant")
+                return
             if command[0] == "timed_schedule":
                 if not may_execute("list_tasks"):
                     self.append("Sherlock AI", "Просмотр задач запрещён настройками безопасности.", "assistant")
@@ -631,6 +669,7 @@ class SherlockDesktop:
                 try:
                     with OfflineWorkspace() as workspace:
                         plan = build_timed_schedule(workspace.list_task_estimates(), *command[1])
+                    self.pending_schedule = (date.today().isoformat(), plan)
                     self.append("Планировщик", plan, "assistant")
                 except (OSError, sqlite3.Error, ValueError) as exc:
                     self.append("Sherlock AI", "Не удалось составить расписание: " + str(exc), "assistant")
