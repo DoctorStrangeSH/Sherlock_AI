@@ -20,6 +20,7 @@ from local_document_analysis import build_document_prompt, MAX_ANALYSIS_CHARS
 from local_folder_search import search_text_folder
 from local_recent_files import recent_text_files, format_recent_file
 from local_commands import parse_local_command
+from local_action_policy import may_execute
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -249,7 +250,7 @@ class SherlockDesktop:
                 self.selected_file_name, MAX_ANALYSIS_CHARS, sent_chars),
             parent=self.root,
         )
-        if not confirmed:
+        if not may_execute("analyze_file", confirmed=confirmed):
             return
         self.show_page("chat")
         self.input.insert("1.0", prompt)
@@ -441,6 +442,24 @@ class SherlockDesktop:
         if command is not None:
             self.input.delete("1.0", "end")
             self.append("Ты", question, "user")
+            if command[0] == "save_note":
+                approved = messagebox.askyesno(
+                    "Сохранить заметку?",
+                    "Добавить заметку в локальную базу Sherlock AI?\n\n" + command[1][:500],
+                    parent=self.root,
+                )
+                if not may_execute("save_note", confirmed=approved):
+                    self.append("Sherlock AI", "Заметка не сохранена.", "assistant")
+                    return
+                try:
+                    with OfflineWorkspace() as workspace:
+                        workspace.add_note(command[1])
+                    if self.workspace_panel is not None:
+                        self.workspace_panel.refresh()
+                    self.append("Sherlock AI", "Заметка сохранена локально. Посмотреть её можно в разделе «Заметки».", "assistant")
+                except (OSError, sqlite3.Error, ValueError):
+                    self.append("Sherlock AI", "Не удалось сохранить заметку.", "assistant")
+                return
             if not self.search_folder:
                 self.append("Sherlock AI", "Сначала выбери папку в разделе «Инструменты» → «Папка…».", "assistant")
                 self.show_page("tools")
@@ -448,12 +467,14 @@ class SherlockDesktop:
             if self.searching:
                 self.append("Sherlock AI", "Поиск уже выполняется. Дождись его завершения.", "assistant")
                 return
-            if command[0] == "recent":
+            if command[0] == "recent" and may_execute("recent_files"):
                 self.start_recent_files(command_question=question)
-            else:
+            elif command[0] == "search" and may_execute("search_files"):
                 self.search_query.delete(0, "end")
                 self.search_query.insert(0, command[1])
                 self.start_folder_search(command_question=question, command_query=command[1])
+            else:
+                self.append("Sherlock AI", "Действие запрещено настройками безопасности.", "assistant")
             return
         model = self.model_choice.get()
         if model != "Авто" and model not in self.model_picker["values"]:
