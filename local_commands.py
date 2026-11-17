@@ -14,6 +14,8 @@ TASK_OVERDUE = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?пр�
 TASK_DUE = re.compile(r"^(?:установи|поставь|измени)\s+срок\s+задачи\s+#?(\d{1,9})\s*:\s*(\d{4}-\d{2}-\d{2})[.!?]?$", re.IGNORECASE)
 TASK_PRIORITY = re.compile(r"^(?:установи|поставь|измени)\s+приоритет\s+задачи\s+#?(\d{1,9})\s*:\s*(низкий|обычный|высокий)[.!?]?$", re.IGNORECASE)
 REMINDER_SNOOZE = re.compile(r"^(?:отложи|перенеси)\s+напоминание\s+(?:по\s+задаче\s+)?#?(\d{1,9})\s+на\s+(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)\s*[.!?]?$", re.IGNORECASE)
+TASK_ESTIMATE = re.compile(r"^(?:установи|измени|поставь)\s+длительность\s+задачи\s+#?(\d{1,9})\s*:\s*(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)[.!?]?$", re.IGNORECASE)
+TASK_BUDGET = re.compile(r"^(?:составь|предложи|сделай)\s+(?:мне\s+)?план\s+на\s+сегодня\s+на\s+(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)[.!?]?$", re.IGNORECASE)
 TASK_DAY_PARTS = re.compile(r"^(?:распредели|раздели|разбей)\s+(?:мои\s+)?задачи\s+(?:на\s+сегодня|на\s+утро\s*,?\s*день\s*(?:и\s*)?вечер)[.!?]?$", re.IGNORECASE)
 TASK_PLAN_TODAY = re.compile(r"^(?:составь|покажи|предложи|сделай)\s+(?:мне\s+)?план\s+на\s+сегодня[.!?]?$", re.IGNORECASE)
 TASK_PLAN_WEEK = re.compile(r"^(?:составь|покажи|предложи|сделай)\s+(?:мне\s+)?план\s+на\s+(?:неделю|7\s+дней)[.!?]?$", re.IGNORECASE)
@@ -41,6 +43,19 @@ def parse_local_command(text):
         title = task.group(1).strip()
         if 1 <= len(title) <= 300:
             return ("create_task", title)
+    estimate = TASK_ESTIMATE.fullmatch(value)
+    if estimate:
+        task_id = int(estimate.group(1))
+        count = int(estimate.group(2))
+        minutes = count * 60 if estimate.group(3).lower().startswith("час") else count
+        if task_id > 0 and 5 <= minutes <= 1440:
+            return ("set_task_estimate", (task_id, minutes))
+    budget = TASK_BUDGET.fullmatch(value)
+    if budget:
+        count = int(budget.group(1))
+        minutes = count * 60 if budget.group(2).lower().startswith("час") else count
+        if 15 <= minutes <= 1440:
+            return ("plan_budget", minutes)
     if TASK_DAY_PARTS.fullmatch(value):
         return ("plan_day_parts", "")
     if TASK_PLAN_TODAY.fullmatch(value):
