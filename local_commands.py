@@ -14,6 +14,7 @@ TASK_OVERDUE = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?пр�
 TASK_DUE = re.compile(r"^(?:установи|поставь|измени)\s+срок\s+задачи\s+#?(\d{1,9})\s*:\s*(\d{4}-\d{2}-\d{2})[.!?]?$", re.IGNORECASE)
 TASK_PRIORITY = re.compile(r"^(?:установи|поставь|измени)\s+приоритет\s+задачи\s+#?(\d{1,9})\s*:\s*(низкий|обычный|высокий)[.!?]?$", re.IGNORECASE)
 REMINDER_SNOOZE = re.compile(r"^(?:отложи|перенеси)\s+напоминание\s+(?:по\s+задаче\s+)?#?(\d{1,9})\s+на\s+(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)\s*[.!?]?$", re.IGNORECASE)
+TASK_DAY_PARTS = re.compile(r"^(?:распредели|раздели|разбей)\s+(?:мои\s+)?задачи\s+(?:на\s+сегодня|на\s+утро\s*,?\s*день\s*(?:и\s*)?вечер)[.!?]?$", re.IGNORECASE)
 TASK_PLAN_TODAY = re.compile(r"^(?:составь|покажи|предложи|сделай)\s+(?:мне\s+)?план\s+на\s+сегодня[.!?]?$", re.IGNORECASE)
 TASK_PLAN_WEEK = re.compile(r"^(?:составь|покажи|предложи|сделай)\s+(?:мне\s+)?план\s+на\s+(?:неделю|7\s+дней)[.!?]?$", re.IGNORECASE)
 TASK_LIST = re.compile(r"^(?:покажи|выведи)\s+(?:мои\s+)?задачи[.!?]?$", re.IGNORECASE)
@@ -40,6 +41,8 @@ def parse_local_command(text):
         title = task.group(1).strip()
         if 1 <= len(title) <= 300:
             return ("create_task", title)
+    if TASK_DAY_PARTS.fullmatch(value):
+        return ("plan_day_parts", "")
     if TASK_PLAN_TODAY.fullmatch(value):
         return ("plan_today", "")
     if TASK_PLAN_WEEK.fullmatch(value):
