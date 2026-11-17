@@ -37,6 +37,13 @@ jobs:
           if (-not (Test-Path "dist/SherlockAI/SherlockAI.exe")) {
             throw "SherlockAI.exe was not created"
           }
+      - name: Smoke test packaged executable
+        shell: pwsh
+        run: |
+          & ".\\dist\\SherlockAI\\SherlockAI.exe" --self-test
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged executable self-test failed with exit code $LASTEXITCODE"
+          }
       - name: Upload Windows preview
         uses: actions/upload-artifact@v4
         with:
