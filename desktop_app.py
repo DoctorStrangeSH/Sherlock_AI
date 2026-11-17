@@ -23,7 +23,7 @@ from local_commands import parse_local_command
 from local_action_policy import may_execute
 from task_overview import filtered_tasks, describe_task
 from task_daily_briefing import build_daily_briefing
-from task_planner import build_task_plan, build_day_parts
+from task_planner import build_task_plan, build_day_parts, build_time_budget_plan
 from task_reminders import ReminderTracker, valid_reminder_time
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
@@ -599,6 +599,40 @@ class SherlockDesktop:
                             self.append("Sherlock AI", "Напоминание не изменено.", "assistant")
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось отложить напоминание.", "assistant")
+                return
+            if command[0] == "set_task_estimate":
+                task_id, minutes = command[1]
+                try:
+                    with OfflineWorkspace() as workspace:
+                        task = next((item for item in workspace.list_task_details() if item[0] == task_id), None)
+                        if task is None:
+                            self.append("Sherlock AI", f"Задача #{task_id} не найдена.", "assistant")
+                        else:
+                            approved = messagebox.askyesno(
+                                "Изменить длительность?",
+                                f"Задача #{task_id}: {task[1]}\nОценка: {minutes} мин.\n\nСохранить?",
+                                parent=self.root,
+                            )
+                            if may_execute("update_task", confirmed=approved):
+                                workspace.update_task_estimate(task_id, minutes)
+                                self.append("Sherlock AI", f"Длительность задачи #{task_id}: ~{minutes} мин.", "assistant")
+                            else:
+                                self.append("Sherlock AI", "Оценка длительности не изменена.", "assistant")
+                    if self.workspace_panel is not None:
+                        self.workspace_panel.refresh()
+                except (OSError, sqlite3.Error, ValueError):
+                    self.append("Sherlock AI", "Не удалось сохранить длительность задачи.", "assistant")
+                return
+            if command[0] == "plan_budget":
+                if not may_execute("list_tasks"):
+                    self.append("Sherlock AI", "Просмотр задач запрещён настройками безопасности.", "assistant")
+                    return
+                try:
+                    with OfflineWorkspace() as workspace:
+                        plan = build_time_budget_plan(workspace.list_task_estimates(), command[1])
+                    self.append("Планировщик", plan, "assistant")
+                except (OSError, sqlite3.Error, ValueError):
+                    self.append("Sherlock AI", "Не удалось составить план по времени.", "assistant")
                 return
             if command[0] in ("plan_today", "plan_week", "plan_day_parts"):
                 if not may_execute("list_tasks"):
