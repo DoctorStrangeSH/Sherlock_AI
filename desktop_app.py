@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 import queue
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -24,6 +24,7 @@ from local_commands import parse_local_command
 from local_action_policy import may_execute
 from task_overview import filtered_tasks, describe_task
 from task_daily_briefing import build_daily_briefing
+from day_overview import build_day_overview
 from task_planner import build_task_plan, build_day_parts, build_time_budget_plan
 from task_scheduler import build_timed_schedule, describe_current_slot, shift_saved_schedule, build_remaining_day_schedule
 from task_reminders import ReminderTracker, valid_reminder_time
@@ -85,7 +86,7 @@ class SherlockDesktop:
         tk.Label(navigation, text="РАЗДЕЛЫ", bg="#10182a", fg=MUTED,
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(2, 12))
         self.nav_buttons = {}
-        for label, target in (("● Общение", "chat"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory"), ("▤ История", "history"), ("⌕ Инструменты", "tools"), ("⚙ Настройки", "settings")):
+        for label, target in (("● Общение", "chat"), ("◷ Мой день", "day"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory"), ("▤ История", "history"), ("⌕ Инструменты", "tools"), ("⚙ Настройки", "settings")):
             button = tk.Button(navigation, text=label, command=lambda page=target: self.show_page(page),
                                bg=INPUT if target == "chat" else "#10182a", fg=TEXT,
                                activebackground=INPUT, activeforeground=TEXT,
@@ -98,6 +99,25 @@ class SherlockDesktop:
         self.content_area.pack(side="left", fill="both", expand=True)
         self.chat_page = tk.Frame(self.content_area, bg=BACKGROUND)
         self.chat_page.pack(fill="both", expand=True)
+        self.day_page = tk.Frame(self.content_area, bg=BACKGROUND)
+        tk.Label(self.day_page, text="Мой день", font=("Segoe UI", 20, "bold"),
+                 bg=BACKGROUND, fg=TEXT).pack(anchor="w", padx=24, pady=(22, 4))
+        tk.Label(self.day_page, text="Задачи и расписание · только локальные данные",
+                 bg=BACKGROUND, fg=MUTED).pack(anchor="w", padx=24, pady=(0, 12))
+        controls = tk.Frame(self.day_page, bg=BACKGROUND)
+        controls.pack(fill="x", padx=24, pady=(0, 10))
+        tk.Button(controls, text="↻ Обновить", command=self.refresh_day_page,
+                  bg=ACCENT, fg=BACKGROUND, relief="flat", padx=12, pady=8).pack(side="left")
+        tk.Button(controls, text="Все задачи", command=lambda: self.show_page("tasks"),
+                  bg=INPUT, fg=TEXT, relief="flat", padx=12, pady=8).pack(side="left", padx=(8, 0))
+        self.day_summary = tk.Label(self.day_page, bg=SURFACE, fg=TEXT, justify="left",
+                                    anchor="w", padx=16, pady=13, wraplength=500,
+                                    font=("Segoe UI", 10, "bold"))
+        self.day_summary.pack(fill="x", padx=24, pady=(0, 10))
+        self.day_text = ScrolledText(self.day_page, wrap="word", bg=SURFACE, fg=TEXT,
+                                    font=("Segoe UI", 10), relief="flat", padx=16,
+                                    pady=14, state="disabled")
+        self.day_text.pack(fill="both", expand=True, padx=24, pady=(0, 18))
         self.tools_page = tk.Frame(self.content_area, bg=BACKGROUND)
         tk.Label(self.tools_page, text="Локальные инструменты", bg=BACKGROUND, fg=TEXT,
                  font=("Segoe UI", 19, "bold")).pack(anchor="w", padx=24, pady=(22, 7))
@@ -450,16 +470,44 @@ class SherlockDesktop:
             self.append("Sherlock AI", "Найдено совпадений: {}. Подробности в «Инструментах».\n{}".format(
                 len(result["matches"]), "\n".join(item["path"] for item in result["matches"][:5])), "assistant")
 
+    def refresh_day_page(self) -> None:
+        if not may_execute("view_plan") or not may_execute("list_tasks"):
+            self.day_summary.configure(text="Доступ к данным ограничен")
+            sections = "Просмотр задач или расписания запрещён настройками безопасности."
+        else:
+            try:
+                with OfflineWorkspace() as workspace:
+                    tasks = workspace.list_task_details()
+                    saved = workspace.latest_plan()
+                summary, status, tasks_text, timeline = build_day_overview(
+                    tasks, saved, now=datetime.now())
+                self.day_summary.configure(text=summary)
+                sections = ("СЕЙЧАС\n" + status +
+                            "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
+                            "\n\nВРЕМЕННАЯ ШКАЛА\n" + timeline)
+            except (OSError, sqlite3.Error, ValueError):
+                self.day_summary.configure(text="Не удалось загрузить данные")
+                sections = "Проверь локальное хранилище задач."
+        self.day_text.configure(state="normal")
+        self.day_text.delete("1.0", "end")
+        self.day_text.insert("1.0", sections)
+        self.day_text.configure(state="disabled")
+
     def show_page(self, page: str) -> None:
         for name, button in self.nav_buttons.items():
             button.configure(bg=INPUT if name == page else "#10182a")
         self.chat_page.pack_forget()
+        self.day_page.pack_forget()
         self.settings_page.pack_forget()
         self.tools_page.pack_forget()
         if self.workspace_panel is not None:
             self.workspace_panel.window.pack_forget()
         if page == "chat":
             self.chat_page.pack(fill="both", expand=True)
+            return
+        if page == "day":
+            self.refresh_day_page()
+            self.day_page.pack(fill="both", expand=True)
             return
         if page == "settings":
             self.settings_page.pack(fill="both", expand=True)
