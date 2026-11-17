@@ -1571,6 +1571,30 @@ class SherlockDesktop:
         self.root.destroy()
 
 
+
+def run_self_test() -> int:
+    """Smoke-test bundled Tk/Tcl and isolated SQLite without network or user data."""
+    from tempfile import TemporaryDirectory
+
+    # Loading Tcl verifies that the frozen build contains its Tcl runtime.
+    interpreter = tk.Tcl()
+    interpreter.eval("set sherlock_smoke_test ready")
+    if interpreter.eval("set sherlock_smoke_test") != "ready":
+        raise RuntimeError("Tcl runtime is unavailable.")
+
+    with TemporaryDirectory(prefix="sherlock-smoke-") as folder:
+        path = Path(folder) / "workspace.sqlite3"
+        with OfflineWorkspace(path) as workspace:
+            task_id = workspace.add_task("Проверка сборки")
+            note_id = workspace.add_note("Локальное хранилище работает")
+            if workspace.list_tasks() != [(task_id, "Проверка сборки", 0)]:
+                raise RuntimeError("Could not write a temporary task.")
+        with OfflineWorkspace(path) as workspace:
+            if workspace.list_notes() != [(note_id, "Локальное хранилище работает")]:
+                raise RuntimeError("Could not reopen the temporary database.")
+    return 0
+
+
 def main() -> None:
     root = tk.Tk()
     SherlockDesktop(root)
@@ -1578,4 +1602,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["--self-test"]:
+        raise SystemExit(run_self_test())
     main()
