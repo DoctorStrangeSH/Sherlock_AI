@@ -37,6 +37,14 @@ class OfflineWorkspace:
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS focus_sessions (
+                id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                duration_seconds INTEGER NOT NULL CHECK(duration_seconds > 0),
+                session_date TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE IF NOT EXISTS saved_plans (
                 id INTEGER PRIMARY KEY,
                 plan_date TEXT NOT NULL,
@@ -123,6 +131,31 @@ class OfflineWorkspace:
             return self.conn.execute(
                 "UPDATE tasks SET priority = ?, due_date = ? WHERE id = ?",
                 (priority, due_date, task_id)).rowcount > 0
+
+    def save_focus_session(self, task_id, title, duration_seconds, session_date):
+        """Persist a completed session only after an explicit user choice."""
+        if not isinstance(task_id, int) or isinstance(task_id, bool) or task_id <= 0:
+            raise ValueError("Некорректный номер задачи.")
+        title = self._clean(title, 300)
+        if (not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool)
+                or not 1 <= duration_seconds <= 86400):
+            raise ValueError("Некорректная длительность фокус-сессии.")
+        self._validate_task_meta("normal", session_date)
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO focus_sessions (task_id, title, duration_seconds, session_date) "
+                "VALUES (?, ?, ?, ?)",
+                (task_id, title, duration_seconds, session_date),
+            ).lastrowid
+
+    def focus_day_summary(self, session_date):
+        """(session_count, total_seconds) for one local calendar day."""
+        self._validate_task_meta("normal", session_date)
+        return self.conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(duration_seconds), 0) "
+            "FROM focus_sessions WHERE session_date = ?",
+            (session_date,),
+        ).fetchone()
 
     def nonurgent_tasks_due(self, day):
         """Only open, non-high-priority tasks due exactly on the selected day."""
