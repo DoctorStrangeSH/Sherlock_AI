@@ -541,6 +541,17 @@ class SherlockDesktop:
         task_id, title, duration = self.focus_session.finish()
         self.refresh_focus_label()
         self.day_feedback.configure(text=f"Сессия завершена: {duration // 60} мин. {duration % 60} сек.")
+        save_approved = duration > 0 and messagebox.askyesno(
+            "Сохранить время работы?",
+            f"Сохранить {duration // 60} мин. {duration % 60} сек. по задаче #{task_id} в локальной истории?",
+            parent=self.root,
+        )
+        if may_execute("save_focus", confirmed=save_approved):
+            try:
+                with OfflineWorkspace() as workspace:
+                    workspace.save_focus_session(task_id, title, duration, date.today().isoformat())
+            except (OSError, sqlite3.Error, ValueError):
+                self.day_feedback.configure(text="Сессия завершена, но сохранить время не удалось.")
         if messagebox.askyesno(
             "Отметить задачу выполненной?",
             f"Фокус-сессия по задаче #{task_id} завершена.\n\n{title[:200]}\n\nОтметить задачу выполненной?",
@@ -614,6 +625,8 @@ class SherlockDesktop:
                 with OfflineWorkspace() as workspace:
                     tasks = workspace.list_task_details()
                     saved = workspace.latest_plan()
+                    focus_count, focus_seconds = (workspace.focus_day_summary(date.today().isoformat())
+                                                   if may_execute("view_focus") else (0, 0))
                 now = datetime.now()
                 summary, status, tasks_text, timeline = build_day_overview(
                     tasks, saved, now=now)
@@ -636,7 +649,9 @@ class SherlockDesktop:
                         self.day_tasks.itemconfig(index, fg="#ffd38a")
                     if task_id == selected_id:
                         self.day_tasks.selection_set(index)
-                self.day_summary.configure(text=summary)
+                self.day_summary.configure(
+                    text=summary + f"\nФокус сегодня: {focus_seconds // 3600} ч "
+                         f"{(focus_seconds % 3600) // 60} мин · сессий: {focus_count}")
                 sections = ("СЕЙЧАС\n" + status +
                             "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
                             "\n\nВРЕМЕННАЯ ШКАЛА\n" + timeline)
