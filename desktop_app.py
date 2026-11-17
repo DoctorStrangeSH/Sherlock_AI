@@ -114,6 +114,19 @@ class SherlockDesktop:
                                     anchor="w", padx=16, pady=13, wraplength=500,
                                     font=("Segoe UI", 10, "bold"))
         self.day_summary.pack(fill="x", padx=24, pady=(0, 10))
+        self.day_progress = ttk.Progressbar(self.day_page, mode="determinate", maximum=100)
+        self.day_progress.pack(fill="x", padx=24, pady=(0, 12))
+        tk.Label(self.day_page, text="Ближайшие задачи", bg=BACKGROUND, fg=TEXT,
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=24)
+        self.day_tasks = tk.Listbox(self.day_page, height=5, bg=SURFACE, fg=TEXT,
+                                    selectbackground=ACCENT, selectforeground=BACKGROUND,
+                                    borderwidth=0, highlightthickness=0,
+                                    font=("Segoe UI", 10))
+        self.day_tasks.pack(fill="x", padx=24, pady=(7, 7))
+        self.day_task_rows = []
+        tk.Button(self.day_page, text="✓ Отметить выбранную выполненной",
+                  command=self.complete_day_task, bg=INPUT, fg=TEXT, relief="flat",
+                  padx=12, pady=7).pack(anchor="w", padx=24, pady=(0, 12))
         self.day_text = ScrolledText(self.day_page, wrap="word", bg=SURFACE, fg=TEXT,
                                     font=("Segoe UI", 10), relief="flat", padx=16,
                                     pady=14, state="disabled")
@@ -470,7 +483,31 @@ class SherlockDesktop:
             self.append("Sherlock AI", "Найдено совпадений: {}. Подробности в «Инструментах».\n{}".format(
                 len(result["matches"]), "\n".join(item["path"] for item in result["matches"][:5])), "assistant")
 
+    def complete_day_task(self) -> None:
+        selection = self.day_tasks.curselection()
+        if not selection or selection[0] >= len(self.day_task_rows):
+            self.status.configure(text="Сначала выбери задачу из списка «Мой день».")
+            return
+        task_id, title = self.day_task_rows[selection[0]]
+        approved = messagebox.askyesno(
+            "Завершить задачу?",
+            f"Отметить задачу #{task_id} выполненной?\n\n{title[:200]}",
+            parent=self.root,
+        )
+        if not may_execute("complete_task", confirmed=approved):
+            return
+        try:
+            with OfflineWorkspace() as workspace:
+                changed = workspace.complete_task(task_id)
+            self.status.configure(text="Задача завершена." if changed else "Задача уже завершена или удалена.")
+            self.refresh_day_page()
+        except (OSError, sqlite3.Error):
+            self.status.configure(text="Не удалось изменить задачу.")
+
     def refresh_day_page(self) -> None:
+        self.day_task_rows = []
+        self.day_tasks.delete(0, "end")
+        self.day_progress["value"] = 0
         if not may_execute("view_plan") or not may_execute("list_tasks"):
             self.day_summary.configure(text="Доступ к данным ограничен")
             sections = "Просмотр задач или расписания запрещён настройками безопасности."
@@ -479,8 +516,19 @@ class SherlockDesktop:
                 with OfflineWorkspace() as workspace:
                     tasks = workspace.list_task_details()
                     saved = workspace.latest_plan()
+                now = datetime.now()
                 summary, status, tasks_text, timeline = build_day_overview(
-                    tasks, saved, now=datetime.now())
+                    tasks, saved, now=now)
+                relevant = [item for item in tasks if item[4] and item[4] <= now.date().isoformat()]
+                completed = sum(1 for item in relevant if item[2])
+                self.day_progress["value"] = 100 * completed / len(relevant) if relevant else 0
+                open_tasks = sorted(
+                    (item for item in relevant if not item[2]),
+                    key=lambda item: (item[4], {"high": 0, "normal": 1, "low": 2}.get(item[3], 1), item[0]),
+                )[:12]
+                self.day_task_rows = [(item[0], item[1]) for item in open_tasks]
+                for task_id, title in self.day_task_rows:
+                    self.day_tasks.insert("end", f"#{task_id} · {title}")
                 self.day_summary.configure(text=summary)
                 sections = ("СЕЙЧАС\n" + status +
                             "\n\nБЛИЖАЙШИЕ ЗАДАЧИ\n" + tasks_text +
