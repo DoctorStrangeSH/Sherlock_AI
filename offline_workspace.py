@@ -248,6 +248,25 @@ class OfflineWorkspace:
             recommendations.append((task_id, title, estimate, suggested, len(seconds_per_day)))
         return sorted(recommendations, key=lambda item: (-abs(item[3] - item[2]), item[0]))[:limit]
 
+    def focus_last_seven_days(self, ending_day):
+        """Seven dated totals, including days with no saved sessions."""
+        from datetime import timedelta
+
+        self._validate_task_meta("normal", ending_day)
+        end = date.fromisoformat(ending_day)
+        start = end - timedelta(days=6)
+        rows = self.conn.execute(
+            "SELECT session_date, SUM(duration_seconds) FROM focus_sessions "
+            "WHERE session_date BETWEEN ? AND ? GROUP BY session_date",
+            (start.isoformat(), ending_day),
+        ).fetchall()
+        totals = dict(rows)
+        return [
+            ((start + timedelta(days=offset)).isoformat(),
+             totals.get((start + timedelta(days=offset)).isoformat(), 0))
+            for offset in range(7)
+        ]
+
     def nonurgent_tasks_due(self, day):
         """Only open, non-high-priority tasks due exactly on the selected day."""
         self._validate_task_meta("normal", day)
