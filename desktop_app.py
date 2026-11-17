@@ -23,6 +23,7 @@ from local_commands import parse_local_command
 from local_action_policy import may_execute
 from task_overview import filtered_tasks, describe_task
 from task_daily_briefing import build_daily_briefing
+from task_reminders import ReminderTracker
 from desktop_logic import ConversationSession
 from local_ai import ask_local_ai, selected_model, installed_models
 
@@ -49,6 +50,8 @@ class SherlockDesktop:
         self.selected_file_name = ""
         self.search_folder = ""
         self.searching = False
+        self.reminder_tracker = ReminderTracker()
+        self.reminders_enabled = tk.BooleanVar(value=self.load_reminders_enabled())
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
         self.model_choice = tk.StringVar(value=self.load_model_choice())
         self.performance = tk.StringVar(value=self.load_performance())
@@ -168,6 +171,16 @@ class SherlockDesktop:
                  text="Быстро: краткие ответы · Баланс: повседневная работа · Качество: больше контекста",
                  bg=BACKGROUND, fg=MUTED, wraplength=480, justify="left").pack(anchor="w", padx=24, pady=(22, 0))
 
+        reminders_row = tk.Frame(self.settings_page, bg=BACKGROUND, padx=24)
+        reminders_row.pack(fill="x", pady=(20, 0))
+        tk.Checkbutton(reminders_row, text="Напоминания о сроках задач", variable=self.reminders_enabled,
+                       command=self.save_model_choice, bg=BACKGROUND, fg=TEXT,
+                       selectcolor=INPUT, activebackground=BACKGROUND,
+                       activeforeground=TEXT).pack(anchor="w")
+        tk.Label(self.settings_page,
+                 text="Только в открытом приложении · проверка раз в минуту · без системных уведомлений.",
+                 bg=BACKGROUND, fg=MUTED, wraplength=480, justify="left").pack(anchor="w", padx=24, pady=(3, 0))
+
         self.chat = ScrolledText(self.chat_page, height=8, wrap="word", bg=SURFACE, fg=TEXT,
                                  insertbackground=TEXT, font=("Segoe UI", 11),
                                  relief="flat", padx=18, pady=16, state="disabled",
@@ -203,6 +216,7 @@ class SherlockDesktop:
         self.append("Sherlock AI", "Привет! ❤️ Напиши мне что-нибудь. Для работы нужна установленная Ollama.", "assistant")
         self.show_daily_briefing()
         self.root.after(100, self.poll)
+        self.root.after(60_000, self.check_reminders)
         threading.Thread(target=self.check_model, daemon=True).start()
         self.input.focus_set()
 
@@ -215,6 +229,20 @@ class SherlockDesktop:
             return
         if briefing:
             self.append("План на день", briefing, "assistant")
+
+    def check_reminders(self) -> None:
+        """Read local tasks once per minute while the application is open."""
+        if self.closed:
+            return
+        if self.reminders_enabled.get():
+            try:
+                with OfflineWorkspace() as workspace:
+                    notice = self.reminder_tracker.due_messages(workspace.list_task_details())
+            except (OSError, sqlite3.Error, ValueError):
+                notice = ""
+            if notice:
+                self.append("Напоминание", notice, "assistant")
+        self.root.after(60_000, self.check_reminders)
 
     def open_local_file(self) -> None:
         path = filedialog.askopenfilename(parent=self.root, title="Выбрать текстовый файл",
@@ -406,6 +434,13 @@ class SherlockDesktop:
         except (OSError, ValueError, TypeError):
             return "Тёплый"
 
+    def load_reminders_enabled(self) -> bool:
+        try:
+            value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("reminders_enabled", False)
+            return value is True
+        except (OSError, ValueError, TypeError):
+            return False
+
     def load_performance(self) -> str:
         try:
             value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("performance", "Быстро")
@@ -417,7 +452,7 @@ class SherlockDesktop:
         try:
             self.model_config_path.parent.mkdir(parents=True, exist_ok=True)
             self.model_config_path.write_text(json.dumps({"model": self.model_choice.get(), "performance": self.performance.get(),
-                                                        "tone": self.tone.get()}, ensure_ascii=False), encoding="utf-8")
+                                                        "tone": self.tone.get(), "reminders_enabled": self.reminders_enabled.get()}, ensure_ascii=False), encoding="utf-8")
         except OSError:
             self.status.configure(text="Не удалось сохранить выбор модели.")
 
