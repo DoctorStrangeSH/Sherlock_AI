@@ -626,6 +626,36 @@ class SherlockDesktop:
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось сохранить длительность задачи.", "assistant")
                 return
+            if command[0] == "list_saved_schedules":
+                if not may_execute("view_plan"):
+                    self.append("Sherlock AI", "Просмотр планов запрещён настройками безопасности.", "assistant")
+                    return
+                try:
+                    with OfflineWorkspace() as workspace:
+                        plans = workspace.list_saved_plans()
+                    history = ("Последние сохранённые расписания:\n" +
+                               "\n".join(f"#{plan_id} · {plan_date} · сохранено {created_at}"
+                                         for plan_id, plan_date, created_at in plans) +
+                               "\n\nЧтобы открыть, напиши: «Открой расписание #N».")
+                    self.append("История расписаний",
+                                history if plans else "Пока нет сохранённых расписаний.",
+                                "assistant")
+                except (OSError, sqlite3.Error, ValueError):
+                    self.append("Sherlock AI", "Не удалось загрузить историю расписаний.", "assistant")
+                return
+            if command[0] == "open_saved_schedule":
+                if not may_execute("view_plan"):
+                    self.append("Sherlock AI", "Просмотр плана запрещён настройками безопасности.", "assistant")
+                    return
+                try:
+                    with OfflineWorkspace() as workspace:
+                        saved = workspace.get_saved_plan(command[1])
+                    self.append("Сохранённый план",
+                                saved[2] if saved else f"Расписание #{command[1]} не найдено.",
+                                "assistant")
+                except (OSError, sqlite3.Error, ValueError):
+                    self.append("Sherlock AI", "Не удалось открыть расписание.", "assistant")
+                return
             if command[0] == "show_saved_schedule":
                 if not may_execute("view_plan"):
                     self.append("Sherlock AI", "Просмотр плана запрещён настройками безопасности.", "assistant")
