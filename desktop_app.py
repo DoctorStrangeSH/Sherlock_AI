@@ -152,17 +152,41 @@ class SherlockDesktop:
                                     font=("Segoe UI", 10))
         self.day_tasks.pack(fill="x", padx=24, pady=(7, 7))
         self.day_task_rows = []
-        self.focus_label = tk.Label(self.day_action_panel, text="Фокус · таймер не запущен",
-                                    bg=BACKGROUND, fg="#a9f6ce", anchor="w",
-                                    font=("Segoe UI", 11, "bold"))
-        self.focus_label.pack(fill="x", padx=24, pady=(0, 7))
-        focus_controls = tk.Frame(self.day_action_panel, bg=BACKGROUND)
-        focus_controls.pack(fill="x", padx=24, pady=(0, 8))
-        for label, action in (("▶ Начать", self.start_focus),
-                              ("Ⅱ Пауза / продолжить", self.toggle_focus),
-                              ("■ Завершить сессию", self.finish_focus)):
-            tk.Button(focus_controls, text=label, command=action, bg=INPUT, fg=TEXT,
-                      relief="flat", padx=8, pady=7).pack(side="left", padx=(0, 6))
+        focus_card = tk.Frame(self.day_action_panel, bg=SURFACE, padx=16, pady=12)
+        focus_card.pack(fill="x", padx=24, pady=(2, 12))
+        self.focus_label = tk.Label(
+            focus_card, text="ГОТОВ К РАБОТЕ", bg=SURFACE, fg=MUTED,
+            anchor="w", font=("Segoe UI", 9, "bold"),
+        )
+        self.focus_label.pack(fill="x")
+        self.focus_timer_value = tk.Label(
+            focus_card, text="00:00", bg=SURFACE, fg="#a9f6ce",
+            anchor="w", font=("Segoe UI", 32, "bold"),
+        )
+        self.focus_timer_value.pack(fill="x", pady=(4, 3))
+        self.focus_task_value = tk.Label(
+            focus_card, text="Выбери задачу и нажми «Начать».",
+            bg=SURFACE, fg=TEXT, anchor="w", justify="left",
+            wraplength=430, font=("Segoe UI", 10),
+        )
+        self.focus_task_value.pack(fill="x", pady=(0, 10))
+        focus_controls = tk.Frame(focus_card, bg=SURFACE)
+        focus_controls.pack(fill="x")
+        self.focus_buttons = {}
+        for key, label, action in (
+            ("start", "▶ Начать", self.start_focus),
+            ("pause", "Ⅱ Пауза", self.toggle_focus),
+            ("finish", "■ Завершить", self.finish_focus),
+        ):
+            button = tk.Button(
+                focus_controls, text=label, command=action,
+                bg=ACCENT if key == "start" else INPUT,
+                fg=BACKGROUND if key == "start" else TEXT,
+                relief="flat", padx=10, pady=8,
+            )
+            button.pack(side="left", padx=(0, 8))
+            self.focus_buttons[key] = button
+        self.refresh_focus_label()
         tk.Button(self.day_action_panel, text="✓ Отметить выбранную выполненной",
                   command=self.complete_day_task, bg=INPUT, fg=TEXT, relief="flat",
                   padx=12, pady=7).pack(anchor="w", padx=24, pady=(0, 12))
@@ -608,14 +632,27 @@ class SherlockDesktop:
                 self.day_feedback.configure(text="Сессия завершена, но изменить задачу не удалось.")
 
     def refresh_focus_label(self) -> None:
-        if not self.focus_session.active:
-            self.focus_label.configure(text="Фокус · таймер не запущен")
-            return
-        seconds = self.focus_session.seconds()
-        label = "Пауза" if self.focus_session.paused else "В работе"
+        active = self.focus_session.active
+        paused = active and self.focus_session.paused
+        seconds = self.focus_session.seconds() if active else 0
+        self.focus_timer_value.configure(
+            text=f"{seconds // 60:02d}:{seconds % 60:02d}",
+            fg="#ffd38a" if paused else "#a9f6ce",
+        )
         self.focus_label.configure(
-            text=f"{label} · #{self.focus_session.task_id} · {seconds // 60:02d}:{seconds % 60:02d} · "
-                 f"{self.focus_session.title[:48]}")
+            text="ПАУЗА" if paused else "В РАБОТЕ" if active else "ГОТОВ К РАБОТЕ",
+            fg="#ffd38a" if paused else "#a9f6ce" if active else MUTED,
+        )
+        self.focus_task_value.configure(
+            text=(f"#{self.focus_session.task_id} · {self.focus_session.title[:75]}"
+                  if active else "Выбери задачу и нажми «Начать»."),
+        )
+        self.focus_buttons["start"].configure(state="disabled" if active else "normal")
+        self.focus_buttons["pause"].configure(
+            state="normal" if active else "disabled",
+            text="▶ Продолжить" if paused else "Ⅱ Пауза",
+        )
+        self.focus_buttons["finish"].configure(state="normal" if active else "disabled")
 
     def tick_focus(self) -> None:
         if self.closed:
