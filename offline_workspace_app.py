@@ -67,12 +67,13 @@ class WorkspaceWindow:
         tabs.add(self.memory_frame, text="Память")
         tabs.add(self.history_frame, text="История")
         tabs.select(initial_tab if initial_tab in (0, 1, 2, 3) else 0)
-        self.tasks = self._table(self.task_frame, ("Состояние", "Задача", "Приоритет", "Срок"), (100, 370, 110, 120))
+        self.tasks = self._table(self.task_frame, ("Состояние", "Задача", "Приоритет", "Срок", "Оценка"), (100, 300, 100, 110, 90))
         self.notes = self._table(self.note_frame, ("Заметка",), (650,))
         self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
         self.conversations = self._table(self.history_frame, ("Название", "Дата"), (450, 160))
         self._controls(self.task_frame, (("Добавить задачу", self.add_task),
                                          ("Изменить срок/приоритет", self.edit_task_details),
+                                         ("Длительность", self.edit_task_estimate),
                                          ("Выполнено", self.complete_task),
                                          ("Удалить", self.delete_task)))
         self._controls(self.note_frame, (("Новая", self.add_note),
@@ -135,15 +136,16 @@ class WorkspaceWindow:
         self.tasks.delete(*self.tasks.get_children())
         tasks = self.store.list_tasks()
         priority_labels = {"low": "Низкий", "normal": "Обычный", "high": "Высокий"}
-        detailed_tasks = self.store.list_task_details()
+        detailed_tasks = self.store.list_task_estimates()
         states = {"done": "✓ Готово", "overdue": "⚠ Просрочено",
                   "today": "◉ Сегодня", "upcoming": "○ В работе",
                   "unscheduled": "○ В работе"}
         for task in detailed_tasks:
-            task_id, title, done, priority, due_date = task
+            task_id, title, done, priority, due_date, minutes = task
             self.tasks.insert("", "end", iid=str(task_id),
                               values=(states[task_bucket(task)], title,
-                                      priority_labels.get(priority, "Обычный"), due_date or "—"))
+                                      priority_labels.get(priority, "Обычный"), due_date or "—",
+                                      f"{minutes} мин." if minutes else "—"))
         self.notes.delete(*self.notes.get_children())
         notes = self.store.list_notes()
         for note_id, content in notes:
@@ -204,6 +206,28 @@ class WorkspaceWindow:
             self.refresh()
         except ValueError as exc:
             messagebox.showwarning("Проверь срок", str(exc), parent=self.window)
+
+    def edit_task_estimate(self):
+        task_id = self._selected(self.tasks)
+        if task_id is None:
+            self.status.configure(text="Сначала выбери задачу.")
+            return
+        entry = next((item for item in self.store.list_task_estimates() if item[0] == task_id), None)
+        if entry is None:
+            return
+        value = simpledialog.askstring(
+            "Длительность задачи",
+            "Примерное время в минутах (5–1440). Пустое поле — неизвестно.",
+            initialvalue=str(entry[5]) if entry[5] else "", parent=self.window)
+        if value is None:
+            return
+        try:
+            stripped = value.strip()
+            minutes = int(stripped) if stripped else None
+            self.store.update_task_estimate(task_id, minutes)
+            self.refresh()
+        except ValueError as exc:
+            messagebox.showwarning("Проверь длительность", str(exc), parent=self.window)
 
     def complete_task(self):
         task_id = self._selected(self.tasks)
