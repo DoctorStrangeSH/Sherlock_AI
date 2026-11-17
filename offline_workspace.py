@@ -124,6 +124,45 @@ class OfflineWorkspace:
                 "UPDATE tasks SET priority = ?, due_date = ? WHERE id = ?",
                 (priority, due_date, task_id)).rowcount > 0
 
+    def nonurgent_tasks_due(self, day):
+        """Only open, non-high-priority tasks due exactly on the selected day."""
+        self._validate_task_meta("normal", day)
+        return self.conn.execute(
+            "SELECT id, title FROM tasks "
+            "WHERE done = 0 AND due_date = ? AND priority IN ('low', 'normal') "
+            "ORDER BY id",
+            (day,),
+        ).fetchall()
+
+    def defer_nonurgent_tasks(self, day, task_ids):
+        """Atomically move an explicitly approved snapshot of due-today tasks."""
+        from datetime import timedelta
+        self._validate_task_meta("normal", day)
+        if not isinstance(task_ids, (list, tuple)) or not task_ids or len(task_ids) > 500:
+            raise ValueError("Нет задач для переноса.")
+        if any(not isinstance(item, int) or isinstance(item, bool) or item <= 0 for item in task_ids):
+            raise ValueError("Некорректный номер задачи.")
+        if len(set(task_ids)) != len(task_ids):
+            raise ValueError("Номера задач повторяются.")
+        next_day = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+        with self.conn:
+            placeholders = ",".join("?" for _ in task_ids)
+            existing = self.conn.execute(
+                f"SELECT id FROM tasks WHERE id IN ({placeholders}) "
+                "AND done = 0 AND due_date = ? AND priority IN ('low', 'normal')",
+                (*task_ids, day),
+            ).fetchall()
+            if {row[0] for row in existing} != set(task_ids):
+                raise ValueError("Список задач изменился. Повтори команду.")
+            changed = self.conn.execute(
+                f"UPDATE tasks SET due_date = ? WHERE id IN ({placeholders}) "
+                "AND done = 0 AND due_date = ? AND priority IN ('low', 'normal')",
+                (next_day, *task_ids, day),
+            ).rowcount
+            if changed != len(task_ids):
+                raise ValueError("Не все задачи были перенесены.")
+        return changed
+
     def save_plan(self, plan_date, content):
         """Save only an explicitly approved read-only plan snapshot."""
         if not isinstance(plan_date, str) or date.fromisoformat(plan_date).isoformat() != plan_date:
