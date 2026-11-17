@@ -4,6 +4,7 @@ import os
 import json
 from pathlib import Path
 import sqlite3
+from datetime import date
 
 
 def default_database_path():
@@ -43,6 +44,13 @@ class OfflineWorkspace:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # Compatible migration: never recreate the existing tasks table.
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(tasks)")}
+        with self.conn:
+            if "priority" not in columns:
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'")
+            if "due_date" not in columns:
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
 
     @staticmethod
     def _clean(value, maximum):
@@ -51,13 +59,44 @@ class OfflineWorkspace:
             raise ValueError(f"Текст должен содержать от 1 до {maximum} символов")
         return text
 
-    def add_task(self, title):
+    @staticmethod
+    def _validate_task_meta(priority="normal", due_date=None):
+        if priority not in ("low", "normal", "high"):
+            raise ValueError("Неизвестный приоритет задачи.")
+        if due_date in ("", None):
+            return priority, None
+        if not isinstance(due_date, str) or len(due_date) != 10:
+            raise ValueError("Дата должна быть в формате ГГГГ-ММ-ДД.")
+        try:
+            parsed = date.fromisoformat(due_date)
+        except ValueError as exc:
+            raise ValueError("Некорректная дата задачи.") from exc
+        if parsed.isoformat() != due_date:
+            raise ValueError("Дата должна быть в формате ГГГГ-ММ-ДД.")
+        return priority, due_date
+
+    def add_task(self, title, priority="normal", due_date=None):
         title = self._clean(title, 300)
+        priority, due_date = self._validate_task_meta(priority, due_date)
         with self.conn:
-            return self.conn.execute("INSERT INTO tasks (title) VALUES (?)", (title,)).lastrowid
+            return self.conn.execute(
+                "INSERT INTO tasks (title, priority, due_date) VALUES (?, ?, ?)",
+                (title, priority, due_date)).lastrowid
 
     def list_tasks(self):
         return self.conn.execute("SELECT id, title, done FROM tasks ORDER BY done, id DESC").fetchall()
+
+    def list_task_details(self):
+        return self.conn.execute(
+            "SELECT id, title, done, priority, due_date FROM tasks ORDER BY done, id DESC"
+        ).fetchall()
+
+    def update_task_details(self, task_id, priority="normal", due_date=None):
+        priority, due_date = self._validate_task_meta(priority, due_date)
+        with self.conn:
+            return self.conn.execute(
+                "UPDATE tasks SET priority = ?, due_date = ? WHERE id = ?",
+                (priority, due_date, task_id)).rowcount > 0
 
     def complete_task(self, task_id):
         with self.conn:
