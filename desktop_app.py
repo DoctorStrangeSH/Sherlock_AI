@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 import queue
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -625,6 +625,39 @@ class SherlockDesktop:
                         self.workspace_panel.refresh()
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось сохранить длительность задачи.", "assistant")
+                return
+            if command[0] == "defer_nonurgent":
+                try:
+                    today = date.today().isoformat()
+                    with OfflineWorkspace() as workspace:
+                        candidates = workspace.nonurgent_tasks_due(today)
+                    if not candidates:
+                        self.append("Sherlock AI",
+                                    "Нет незавершённых несрочных задач со сроком на сегодня. "
+                                    "Просроченные задачи и задачи без срока не затронуты.",
+                                    "assistant")
+                        return
+                    total_candidates = len(candidates)
+                    candidates = candidates[:10]  # Every affected task must fit in the confirmation dialog.
+                    next_day = (date.today() + timedelta(days=1)).isoformat()
+                    preview = "\n".join(f"#{task_id} · {title[:100]}" for task_id, title in candidates)
+                    approved = messagebox.askyesno(
+                        "Перенести задачи?",
+                        f"Перенести {len(candidates)} несрочных задач с {today} на {next_day}?\n\n" +
+                        preview + (f"\n\nПоказаны первые 10 из {total_candidates}. Остальные можно перенести повторной командой." if total_candidates > 10 else "") +
+                        "\n\nВысокоприоритетные и просроченные задачи останутся без изменений.",
+                        parent=self.root,
+                    )
+                    if not may_execute("update_task", confirmed=approved):
+                        self.append("Sherlock AI", "Перенос отменён, задачи не изменены.", "assistant")
+                        return
+                    with OfflineWorkspace() as workspace:
+                        count = workspace.defer_nonurgent_tasks(today, [item[0] for item in candidates])
+                    self.append("Sherlock AI",
+                                f"Перенесено задач: {count}. Новый срок: {next_day}.",
+                                "assistant")
+                except (OSError, sqlite3.Error, ValueError) as exc:
+                    self.append("Sherlock AI", "Не удалось перенести задачи: " + str(exc), "assistant")
                 return
             if command[0] == "plan_remaining":
                 if not may_execute("list_tasks"):
