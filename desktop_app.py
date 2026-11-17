@@ -269,7 +269,7 @@ class SherlockDesktop:
         popup.configure(bg=SURFACE)
         popup.resizable(False, False)
         popup.attributes("-topmost", True)
-        width, height = 390, 220
+        width, height = 390, 245
         x = max(0, popup.winfo_screenwidth() - width - 35)
         y = max(0, popup.winfo_screenheight() - height - 85)
         popup.geometry(f"{width}x{height}+{x}+{y}")
@@ -279,17 +279,23 @@ class SherlockDesktop:
                  wraplength=355, font=("Segoe UI", 9)).pack(anchor="w", padx=15)
         controls = tk.Frame(popup, bg=SURFACE)
         controls.pack(side="bottom", fill="x", padx=15, pady=12)
-        tk.Button(controls, text="Отложить на 2 часа",
-                  command=lambda: self.snooze_reminder_popup(task_ids, popup),
+        intervals = {"15 минут": 15, "30 минут": 30, "1 час": 60, "2 часа": 120, "4 часа": 240}
+        interval_choice = tk.StringVar(popup, value="2 часа")
+        interval_picker = ttk.Combobox(controls, textvariable=interval_choice, width=10,
+                                       values=list(intervals), state="readonly",
+                                       style="Sherlock.TCombobox")
+        interval_picker.pack(side="left", padx=(0, 6))
+        tk.Button(controls, text="Отложить",
+                  command=lambda: self.snooze_reminder_popup(task_ids, popup, intervals[interval_choice.get()]),
                   bg=ACCENT, fg=BACKGROUND, relief="flat", padx=8).pack(side="left")
         tk.Button(controls, text="Закрыть", command=popup.destroy,
                   bg=INPUT, fg=TEXT, relief="flat", padx=8).pack(side="right")
         popup.after(30_000, lambda: popup.destroy() if popup.winfo_exists() else None)
 
-    def snooze_reminder_popup(self, task_ids: tuple, popup: tk.Toplevel) -> None:
+    def snooze_reminder_popup(self, task_ids: tuple, popup: tk.Toplevel, minutes: int) -> None:
         try:
-            self.reminder_tracker.snooze(task_ids, hours=2)
-            self.append("Sherlock AI", "Напоминания по выбранным задачам отложены на 2 часа.", "assistant")
+            self.reminder_tracker.snooze(task_ids, minutes=minutes)
+            self.append("Sherlock AI", f"Напоминания по выбранным задачам отложены на {minutes} мин.", "assistant")
         except (OSError, ValueError):
             self.append("Sherlock AI", "Не удалось отложить напоминания.", "assistant")
         popup.destroy()
