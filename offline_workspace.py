@@ -267,6 +267,30 @@ class OfflineWorkspace:
             for offset in range(7)
         ]
 
+    def day_workload_snapshot(self, day):
+        """Open overdue/today estimates and historical active-day focus baseline."""
+        from datetime import timedelta
+        from statistics import median
+
+        self._validate_task_meta("normal", day)
+        rows = self.conn.execute(
+            "SELECT estimated_minutes FROM tasks "
+            "WHERE done = 0 AND due_date IS NOT NULL AND due_date <= ?",
+            (day,),
+        ).fetchall()
+        known = [minutes for (minutes,) in rows if minutes is not None]
+        history_start = (date.fromisoformat(day) - timedelta(days=30)).isoformat()
+        history_end = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
+        history = self.conn.execute(
+            "SELECT SUM(duration_seconds) FROM focus_sessions "
+            "WHERE session_date BETWEEN ? AND ? "
+            "GROUP BY session_date",
+            (history_start, history_end),
+        ).fetchall()
+        typical_minutes = int(median([seconds / 60 for (seconds,) in history])) if len(history) >= 3 else None
+        return (sum(known), len(known), len(rows) - len(known),
+                typical_minutes, len(history))
+
     def nonurgent_tasks_due(self, day):
         """Only open, non-high-priority tasks due exactly on the selected day."""
         self._validate_task_meta("normal", day)
