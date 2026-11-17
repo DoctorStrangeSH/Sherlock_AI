@@ -15,6 +15,7 @@ TASK_DUE = re.compile(r"^(?:установи|поставь|измени)\s+ср
 TASK_PRIORITY = re.compile(r"^(?:установи|поставь|измени)\s+приоритет\s+задачи\s+#?(\d{1,9})\s*:\s*(низкий|обычный|высокий)[.!?]?$", re.IGNORECASE)
 REMINDER_SNOOZE = re.compile(r"^(?:отложи|перенеси)\s+напоминание\s+(?:по\s+задаче\s+)?#?(\d{1,9})\s+на\s+(\d{1,4})\s+(минут(?:у|ы)?|час(?:а|ов)?)\s*[.!?]?$", re.IGNORECASE)
 PLAN_SAVE = re.compile(r"^(?:сохрани|запомни)\s+(?:это\s+)?расписание[.!?]?$", re.IGNORECASE)
+PLAN_REMAINING = re.compile(r"^(?:у\s+меня\s+)?остал(?:ось|ись)\s+(\d{1,3})\s+(минут(?:а|ы)?|час(?:а|ов)?)[.!?]?$", re.IGNORECASE)
 PLAN_DELAY = re.compile(r"^(?:я\s+)?задержал(?:ся|ась)\s+на\s+(\d{1,3})\s+минут(?:у|ы)?[.!?]?$", re.IGNORECASE)
 PLAN_NOW = re.compile(r"^(?:что\s+(?:у\s+меня\s+)?сейчас\s+по\s+расписанию|покажи\s+текущую\s+задачу)[.!?]?$", re.IGNORECASE)
 PLAN_HISTORY = re.compile(r"^(?:покажи|открой|выведи)\s+(?:мою\s+)?историю\s+расписаний[.!?]?$", re.IGNORECASE)
@@ -59,6 +60,12 @@ def parse_local_command(text):
         return ("save_schedule", "")
     if PLAN_SHOW.fullmatch(value):
         return ("show_saved_schedule", "")
+    remaining = PLAN_REMAINING.fullmatch(value)
+    if remaining:
+        amount = int(remaining.group(1))
+        minutes = amount * 60 if remaining.group(2).lower().startswith("час") else amount
+        if 15 <= minutes <= 720:
+            return ("plan_remaining", minutes)
     delayed = PLAN_DELAY.fullmatch(value)
     if delayed and 5 <= int(delayed.group(1)) <= 180:
         return ("delay_schedule", int(delayed.group(1)))
