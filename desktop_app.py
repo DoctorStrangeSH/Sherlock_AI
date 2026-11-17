@@ -460,6 +460,48 @@ class SherlockDesktop:
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось сохранить заметку.", "assistant")
                 return
+            if command[0] in ("create_task", "list_tasks", "complete_task"):
+                try:
+                    with OfflineWorkspace() as workspace:
+                        if command[0] == "list_tasks":
+                            if may_execute("list_tasks"):
+                                entries = workspace.list_tasks()[:30]
+                                lines = ["#{} {} {}".format(item[0], "✓" if item[2] else "○", item[1])
+                                         for item in entries]
+                                self.append("Sherlock AI", "Твои задачи:\n" + ("\n".join(lines) if lines else "Список пуст."),
+                                            "assistant")
+                        elif command[0] == "create_task":
+                            confirmed = messagebox.askyesno(
+                                "Добавить задачу?",
+                                "Сохранить задачу в локальной базе?\n\n" + command[1][:300],
+                                parent=self.root,
+                            )
+                            if may_execute("create_task", confirmed=confirmed):
+                                task_id = workspace.add_task(command[1])
+                                self.append("Sherlock AI", "Создана задача #{}: {}".format(task_id, command[1]), "assistant")
+                            else:
+                                self.append("Sherlock AI", "Задача не создана.", "assistant")
+                        else:
+                            target = next((item for item in workspace.list_tasks() if item[0] == command[1]), None)
+                            if target is None:
+                                self.append("Sherlock AI", "Задача #{} не найдена.".format(command[1]), "assistant")
+                            elif target[2]:
+                                self.append("Sherlock AI", "Задача #{} уже выполнена.".format(command[1]), "assistant")
+                            else:
+                                confirmed = messagebox.askyesno(
+                                    "Завершить задачу?",
+                                    "Отметить выполненной задачу #{}?\n\n{}".format(target[0], target[1]),
+                                    parent=self.root,
+                                )
+                                if may_execute("complete_task", confirmed=confirmed) and workspace.complete_task(target[0]):
+                                    self.append("Sherlock AI", "Задача #{} выполнена.".format(target[0]), "assistant")
+                                else:
+                                    self.append("Sherlock AI", "Задача не изменена.", "assistant")
+                    if self.workspace_panel is not None:
+                        self.workspace_panel.refresh()
+                except (OSError, sqlite3.Error, ValueError):
+                    self.append("Sherlock AI", "Не удалось выполнить действие с задачами.", "assistant")
+                return
             if not self.search_folder:
                 self.append("Sherlock AI", "Сначала выбери папку в разделе «Инструменты» → «Папка…».", "assistant")
                 self.show_page("tools")
