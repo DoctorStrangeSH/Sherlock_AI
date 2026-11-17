@@ -37,6 +37,12 @@ class OfflineWorkspace:
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS saved_plans (
+                id INTEGER PRIMARY KEY,
+                plan_date TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -117,6 +123,23 @@ class OfflineWorkspace:
             return self.conn.execute(
                 "UPDATE tasks SET priority = ?, due_date = ? WHERE id = ?",
                 (priority, due_date, task_id)).rowcount > 0
+
+    def save_plan(self, plan_date, content):
+        """Save only an explicitly approved read-only plan snapshot."""
+        if not isinstance(plan_date, str) or date.fromisoformat(plan_date).isoformat() != plan_date:
+            raise ValueError("Некорректная дата плана.")
+        if not isinstance(content, str) or not 1 <= len(content) <= 20000:
+            raise ValueError("Некорректное содержимое плана.")
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO saved_plans (plan_date, content) VALUES (?, ?)",
+                (plan_date, content)
+            ).lastrowid
+
+    def latest_plan(self):
+        return self.conn.execute(
+            "SELECT id, plan_date, content FROM saved_plans ORDER BY id DESC LIMIT 1"
+        ).fetchone()
 
     def complete_task(self, task_id):
         with self.conn:
