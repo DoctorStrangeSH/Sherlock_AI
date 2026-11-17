@@ -461,7 +461,7 @@ class SherlockDesktop:
                 except (OSError, sqlite3.Error, ValueError):
                     self.append("Sherlock AI", "Не удалось сохранить заметку.", "assistant")
                 return
-            if command[0] in ("create_task", "list_tasks", "tasks_today", "tasks_overdue", "complete_task"):
+            if command[0] in ("create_task", "list_tasks", "tasks_today", "tasks_overdue", "complete_task", "set_task_due", "set_task_priority"):
                 try:
                     with OfflineWorkspace() as workspace:
                         if command[0] in ("list_tasks", "tasks_today", "tasks_overdue"):
@@ -488,6 +488,33 @@ class SherlockDesktop:
                                 self.append("Sherlock AI", "Создана задача #{}: {}".format(task_id, command[1]), "assistant")
                             else:
                                 self.append("Sherlock AI", "Задача не создана.", "assistant")
+                        elif command[0] in ("set_task_due", "set_task_priority"):
+                            task_id, value = command[1]
+                            target = next((item for item in workspace.list_task_details() if item[0] == task_id), None)
+                            if target is None:
+                                self.append("Sherlock AI", "Задача #{} не найдена.".format(task_id), "assistant")
+                            else:
+                                priority = target[3]
+                                due_date = target[4]
+                                if command[0] == "set_task_due":
+                                    due_date = value
+                                    label = "Срок: " + value
+                                else:
+                                    priority = {"низкий": "low", "обычный": "normal", "высокий": "high"}[value]
+                                    label = "Приоритет: " + value
+                                # Validate the date and priority before requesting user consent.
+                                workspace._validate_task_meta(priority, due_date)
+                                approved = messagebox.askyesno(
+                                    "Изменить задачу?",
+                                    "Задача #{}: {}\n\n{}\n\nПрименить изменение?".format(
+                                        task_id, target[1], label),
+                                    parent=self.root,
+                                )
+                                if may_execute("update_task", confirmed=approved):
+                                    workspace.update_task_details(task_id, priority, due_date)
+                                    self.append("Sherlock AI", "Задача #{} обновлена: {}".format(task_id, label), "assistant")
+                                else:
+                                    self.append("Sherlock AI", "Задача не изменена.", "assistant")
                         else:
                             target = next((item for item in workspace.list_tasks() if item[0] == command[1]), None)
                             if target is None:
