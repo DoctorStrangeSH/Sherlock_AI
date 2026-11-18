@@ -78,6 +78,7 @@ class OfflineWorkspace:
                 name TEXT PRIMARY KEY COLLATE NOCASE,
                 description TEXT NOT NULL DEFAULT '',
                 goal TEXT NOT NULL DEFAULT '',
+                priority TEXT NOT NULL DEFAULT 'normal',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -92,6 +93,9 @@ class OfflineWorkspace:
                 self.conn.execute("ALTER TABLE tasks ADD COLUMN estimated_minutes INTEGER")
             if "project" not in columns:
                 self.conn.execute("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT ''")
+            project_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(projects)")}
+            if "priority" not in project_columns:
+                self.conn.execute("ALTER TABLE projects ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'")
             archived_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(deleted_tasks)")}
             if "project" not in archived_columns:
                 self.conn.execute("ALTER TABLE deleted_tasks ADD COLUMN project TEXT NOT NULL DEFAULT ''")
@@ -174,7 +178,7 @@ class OfflineWorkspace:
             raise ValueError("Название проекта должно быть не длиннее 60 символов.")
         return " ".join(project.split())
 
-    def save_project(self, name, description="", goal=""):
+    def save_project(self, name, description="", goal="", priority="normal"):
         name = self._clean_project(name)
         if not name:
             raise ValueError("Укажи название проекта.")
@@ -182,17 +186,20 @@ class OfflineWorkspace:
             raise ValueError("Описание проекта должно быть до 500 символов.")
         if not isinstance(goal, str) or len(goal.strip()) > 300:
             raise ValueError("Цель проекта должна быть до 300 символов.")
+        if priority not in ("low", "normal", "high"):
+            raise ValueError("Неизвестный приоритет проекта.")
         with self.conn:
             self.conn.execute(
-                "INSERT INTO projects (name, description, goal) VALUES (?, ?, ?) "
-                "ON CONFLICT(name) DO UPDATE SET description = excluded.description, goal = excluded.goal",
-                (name, description.strip(), goal.strip()),
+                "INSERT INTO projects (name, description, goal, priority) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET description = excluded.description, "
+                "goal = excluded.goal, priority = excluded.priority",
+                (name, description.strip(), goal.strip(), priority),
             )
         return name
 
     def list_project_details(self):
         return self.conn.execute(
-            "SELECT name, description, goal FROM projects ORDER BY name COLLATE NOCASE"
+            "SELECT name, description, goal, priority FROM projects ORDER BY name COLLATE NOCASE"
         ).fetchall()
 
     def list_task_projects(self):
