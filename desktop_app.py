@@ -1948,12 +1948,17 @@ def run_gui_self_test() -> int:
                 text_inputs = [child for child in descendants(project_editor) if type(child) is tk.Text]
                 text_inputs[0].insert("1.0", "Описание проекта")
                 text_inputs[1].insert("1.0", "Цель проекта")
+                project_priority = next(
+                    child for child in descendants(project_editor)
+                    if isinstance(child, ttk.Combobox)
+                )
+                project_priority.set("Высокий")
                 project_save = next(
                     child for child in descendants(project_editor)
                     if isinstance(child, tk.Button) and child.cget("text") == "Сохранить проект"
                 )
                 project_save.invoke()
-                if ("Новый проект", "Описание проекта", "Цель проекта") not in (
+                if ("Новый проект", "Описание проекта", "Цель проекта", "high") not in (
                     panel.store.list_project_details()
                 ):
                     raise RuntimeError("Standalone project metadata was not saved.")
@@ -1964,6 +1969,13 @@ def run_gui_self_test() -> int:
                     raise RuntimeError("Empty project has fictitious tasks.")
                 if "Новый проект" not in panel.project_filter_picker.cget("values"):
                     raise RuntimeError("Standalone project is missing from task filters.")
+                dashboard_row = next(
+                    panel.project_overview_table.item(item, "values")
+                    for item in panel.project_overview_table.get_children()
+                    if panel.project_overview_table.item(item, "values")[0] == "Новый проект"
+                )
+                if dashboard_row[1:3] != ("Высокий", "▱" * 10 + " 0%"):
+                    raise RuntimeError("Dashboard priority or empty progress was not rendered.")
                 panel.project_overview_window.destroy()
                 panel.project_filter.set("Без проекта")
                 panel.refresh()
