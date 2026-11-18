@@ -1884,12 +1884,13 @@ def run_gui_self_test() -> int:
                         yield child
                         yield from descendants(child)
                 fields = [child for child in descendants(editor) if type(child) is tk.Entry]
-                if len(fields) != 3:
+                if len(fields) != 4:
                     raise RuntimeError("Task editor fields are missing.")
                 fields[0].delete(0, "end")
                 fields[0].insert(0, "Задача после правки")
-                fields[1].insert(0, "35")
-                fields[2].insert(0, date.today().isoformat())
+                fields[1].insert(0, "Sherlock AI")
+                fields[2].insert(0, "35")
+                fields[3].insert(0, date.today().isoformat())
                 priority_picker = next(
                     child for child in descendants(editor) if isinstance(child, ttk.Combobox)
                 )
@@ -1902,7 +1903,21 @@ def run_gui_self_test() -> int:
                 updated = next(row for row in panel.store.list_task_estimates() if row[0] == task_id)
                 if updated[1:] != ("Задача после правки", 0, "high", date.today().isoformat(), 35):
                     raise RuntimeError("Task modal did not save all fields.")
+                if panel.store.list_task_projects().get(task_id) != "Sherlock AI":
+                    raise RuntimeError("Task project was not saved.")
+                panel.project_filter.set("Sherlock AI")
+                panel.refresh()
+                if tuple(panel.tasks.get_children()) != (str(task_id),):
+                    raise RuntimeError("Project filter did not select its tasks.")
+                panel.project_filter.set("Без проекта")
+                panel.refresh()
+                if panel.tasks.exists(str(task_id)):
+                    raise RuntimeError("Unassigned project filter showed an assigned task.")
+                panel.project_filter.set("Все проекты")
+                panel.refresh()
                 values = panel.tasks.item(str(task_id), "values")
+                if "[Sherlock AI] Задача после правки" not in values:
+                    raise RuntimeError("Task list did not show its project.")
                 if "● Высокий" not in values or "Сегодня" not in values:
                     raise RuntimeError("Task priority or due date styling was not shown.")
                 panel.tasks.selection_set(str(task_id))
@@ -1933,6 +1948,8 @@ def run_gui_self_test() -> int:
                 panel.undo_delete_task()
                 if not panel.tasks.exists(str(task_id)):
                     raise RuntimeError("Undo did not restore the deleted task.")
+                if panel.store.list_task_projects().get(task_id) != "Sherlock AI":
+                    raise RuntimeError("Restoring a deleted task lost its project.")
                 if panel.status.cget("text") != "Удалённая задача восстановлена.":
                     raise RuntimeError("Delete undo feedback was not displayed.")
                 panel.task_filter.set("Открытые")
