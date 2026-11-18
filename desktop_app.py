@@ -1811,6 +1811,17 @@ def run_self_test() -> int:
         with OfflineWorkspace(path) as workspace:
             if workspace.list_notes() != [(note_id, "Локальное хранилище работает")]:
                 raise RuntimeError("Could not reopen the temporary database.")
+            if not workspace.delete_task(task_id):
+                raise RuntimeError("Could not archive a task.")
+            if workspace.list_tasks():
+                raise RuntimeError("Archived task is still active.")
+        with OfflineWorkspace(path) as workspace:
+            if workspace.restore_last_deleted_task() != task_id:
+                raise RuntimeError("Could not restore a task after reopening SQLite.")
+            if workspace.list_tasks()[0][1] != "Проверка редактирования":
+                raise RuntimeError("Restored task lost its title.")
+            if workspace.restore_last_deleted_task() is not None:
+                raise RuntimeError("Restored task was left in the archive.")
     return 0
 
 
@@ -1914,6 +1925,18 @@ def run_gui_self_test() -> int:
                 panel.refresh()
                 if not panel.tasks.exists(str(task_id)):
                     raise RuntimeError("Restored task is missing from open tasks.")
+                panel.tasks.selection_set(str(task_id))
+                with patch("offline_workspace_app.messagebox.askyesno", return_value=True):
+                    panel.delete_task()
+                if panel.tasks.exists(str(task_id)):
+                    raise RuntimeError("Deleted task still appears in active list.")
+                panel.undo_delete_task()
+                if not panel.tasks.exists(str(task_id)):
+                    raise RuntimeError("Undo did not restore the deleted task.")
+                if panel.status.cget("text") != "Удалённая задача восстановлена.":
+                    raise RuntimeError("Delete undo feedback was not displayed.")
+                panel.task_filter.set("Открытые")
+                panel.refresh()
                 panel.select_tab(1)
                 panel.note_editor.insert("1.0", "Заметка из интерфейса")
                 panel.save_note()
