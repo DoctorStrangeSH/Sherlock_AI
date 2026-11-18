@@ -637,6 +637,62 @@ class WorkspaceWindow:
                                    f"Задач: {sum(row[1] for row in rows)}")
             self._project_overview_names = [row[0] for row in rows]
 
+        def edit_project(create=False):
+            selected = table.selection()
+            existing = self._project_overview_names[int(selected[0])] if selected and not create else ""
+            existing_details = next(
+                (item for item in self.store.list_project_details() if item[0] == existing),
+                None,
+            )
+            editor = tk.Toplevel(overview)
+            editor.title("Sherlock AI · Проект")
+            editor.geometry("540x420")
+            editor.minsize(460, 370)
+            editor.configure(bg=BG)
+            editor.transient(overview)
+            self.project_editor_window = editor
+            tk.Label(editor, text="Новый проект" if not existing else "Карточка проекта",
+                     bg=BG, fg=FG, font=("Segoe UI", 16, "bold")).pack(
+                         anchor="w", padx=18, pady=(15, 10))
+            tk.Label(editor, text="Название", bg=BG, fg=MUTED).pack(anchor="w", padx=18)
+            name_input = tk.Entry(editor, bg=INPUT, fg=FG, insertbackground=FG, relief="flat")
+            name_input.pack(fill="x", padx=18, pady=(3, 10), ipady=7)
+            name_input.insert(0, existing)
+            if existing:
+                name_input.configure(state="disabled")
+            tk.Label(editor, text="Описание", bg=BG, fg=MUTED).pack(anchor="w", padx=18)
+            description_input = tk.Text(editor, height=3, bg=INPUT, fg=FG,
+                                        insertbackground=FG, relief="flat", wrap="word")
+            description_input.pack(fill="x", padx=18, pady=(3, 10))
+            tk.Label(editor, text="Цель проекта", bg=BG, fg=MUTED).pack(anchor="w", padx=18)
+            goal_input = tk.Text(editor, height=3, bg=INPUT, fg=FG,
+                                  insertbackground=FG, relief="flat", wrap="word")
+            goal_input.pack(fill="x", padx=18, pady=(3, 10))
+            if existing_details:
+                description_input.insert("1.0", existing_details[1])
+                goal_input.insert("1.0", existing_details[2])
+
+            def save():
+                try:
+                    self.store.save_project(
+                        existing or name_input.get(),
+                        description_input.get("1.0", "end-1c"),
+                        goal_input.get("1.0", "end-1c"),
+                    )
+                except ValueError as exc:
+                    messagebox.showerror("Ошибка проекта", str(exc), parent=editor)
+                    return
+                reload_items()
+                self.refresh()
+                self.status.configure(text="Проект сохранён на этом компьютере.")
+                editor.destroy()
+
+            tk.Button(editor, text="Сохранить проект", command=save,
+                      bg=ACCENT, fg=BG, relief="flat", padx=14, pady=9).pack(
+                          anchor="w", padx=18, pady=(4, 12))
+            editor.bind("<Escape>", lambda _event: editor.destroy())
+            name_input.focus_set()
+
         def open_selected(_event=None):
             selection = table.selection()
             if not selection:
@@ -655,10 +711,14 @@ class WorkspaceWindow:
         controls.pack(fill="x", padx=18, pady=(0, 14))
         tk.Button(controls, text="Открыть задачи проекта", command=open_selected,
                   bg=ACCENT, fg=BG, relief="flat", padx=14, pady=8).pack(side="left")
+        tk.Button(controls, text="+ Проект", command=lambda: edit_project(True),
+                  bg=PANEL, fg=FG, relief="flat", padx=12, pady=8).pack(side="left", padx=8)
         tk.Button(controls, text="Обновить", command=reload_items,
                   bg=PANEL, fg=FG, relief="flat", padx=12, pady=8).pack(side="left", padx=8)
         tk.Button(controls, text="Закрыть", command=overview.destroy,
                   bg=PANEL, fg=FG, relief="flat", padx=12, pady=8).pack(side="right")
+        tk.Button(controls, text="Описание / цель", command=edit_project,
+                  bg=PANEL, fg=FG, relief="flat", padx=12, pady=8).pack(side="left")
         table.bind("<Double-1>", open_selected)
         overview.bind("<Escape>", lambda _event: overview.destroy())
 
