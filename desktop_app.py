@@ -1933,6 +1933,38 @@ def run_gui_self_test() -> int:
                     tuple(panel.tasks.get_children()) != (str(task_id),)
                 ):
                     raise RuntimeError("Project dashboard navigation failed.")
+                # A standalone project must exist before any task is assigned.
+                panel.open_project_overview()
+                controls = [
+                    child for child in descendants(panel.project_overview_window)
+                    if isinstance(child, tk.Button) and child.cget("text") == "+ Проект"
+                ]
+                controls[0].invoke()
+                project_editor = panel.project_editor_window
+                title_input = next(
+                    child for child in descendants(project_editor) if type(child) is tk.Entry
+                )
+                title_input.insert(0, "Новый проект")
+                text_inputs = [child for child in descendants(project_editor) if type(child) is tk.Text]
+                text_inputs[0].insert("1.0", "Описание проекта")
+                text_inputs[1].insert("1.0", "Цель проекта")
+                project_save = next(
+                    child for child in descendants(project_editor)
+                    if isinstance(child, tk.Button) and child.cget("text") == "Сохранить проект"
+                )
+                project_save.invoke()
+                if ("Новый проект", "Описание проекта", "Цель проекта") not in (
+                    panel.store.list_project_details()
+                ):
+                    raise RuntimeError("Standalone project metadata was not saved.")
+                independent = next(
+                    row for row in panel.store.list_project_overview() if row[0] == "Новый проект"
+                )
+                if independent[1:] != (0, 0, 0, 0, 0, 0, 0):
+                    raise RuntimeError("Empty project has fictitious tasks.")
+                if "Новый проект" not in panel.project_filter_picker.cget("values"):
+                    raise RuntimeError("Standalone project is missing from task filters.")
+                panel.project_overview_window.destroy()
                 panel.project_filter.set("Без проекта")
                 panel.refresh()
                 if panel.tasks.exists(str(task_id)):
