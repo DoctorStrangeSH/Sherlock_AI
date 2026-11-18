@@ -433,6 +433,13 @@ class OfflineWorkspace:
         with self.conn:
             return self.conn.execute("UPDATE tasks SET done = 1 WHERE id = ? AND done = 0", (task_id,)).rowcount > 0
 
+    def reopen_task(self, task_id):
+        """Return an existing completed task to the active queue."""
+        with self.conn:
+            return self.conn.execute(
+                "UPDATE tasks SET done = 0 WHERE id = ? AND done = 1", (task_id,)
+            ).rowcount > 0
+
     def delete_task(self, task_id):
         with self.conn:
             return self.conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,)).rowcount > 0
