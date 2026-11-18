@@ -69,6 +69,7 @@ class OfflineWorkspace:
                 priority TEXT NOT NULL,
                 due_date TEXT,
                 estimated_minutes INTEGER,
+                project TEXT NOT NULL DEFAULT '',
                 deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -81,6 +82,11 @@ class OfflineWorkspace:
                 self.conn.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
             if "estimated_minutes" not in columns:
                 self.conn.execute("ALTER TABLE tasks ADD COLUMN estimated_minutes INTEGER")
+            if "project" not in columns:
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT ''")
+            archived_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(deleted_tasks)")}
+            if "project" not in archived_columns:
+                self.conn.execute("ALTER TABLE deleted_tasks ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 
     @staticmethod
     def _clean(value, maximum):
@@ -114,12 +120,14 @@ class OfflineWorkspace:
                 (title, priority, due_date)).lastrowid
 
     def save_task_fields(self, task_id, title, priority="normal", due_date=None,
-                         estimated_minutes=None):
+                         estimated_minutes=None, project=None):
         """Atomically update the editable fields of an existing task."""
         if not isinstance(task_id, int) or isinstance(task_id, bool) or task_id <= 0:
             raise ValueError("Некорректный номер задачи.")
         title = self._clean(title, 300)
         priority, due_date = self._validate_task_meta(priority, due_date)
+        if project is not None:
+            project = self._clean_project(project)
         if estimated_minutes is not None and (
             isinstance(estimated_minutes, bool)
             or not isinstance(estimated_minutes, int)
@@ -129,14 +137,15 @@ class OfflineWorkspace:
         with self.conn:
             return self.conn.execute(
                 "UPDATE tasks SET title = ?, priority = ?, due_date = ?, "
-                "estimated_minutes = ? WHERE id = ?",
-                (title, priority, due_date, estimated_minutes, task_id),
+                "estimated_minutes = ?, project = COALESCE(?, project) WHERE id = ?",
+                (title, priority, due_date, estimated_minutes, project, task_id),
             ).rowcount > 0
 
     def add_task_full(self, title, priority="normal", due_date=None,
-                      estimated_minutes=None):
+                      estimated_minutes=None, project=""):
         """Create a task with all fields in one transaction."""
         title = self._clean(title, 300)
+        project = self._clean_project(project)
         priority, due_date = self._validate_task_meta(priority, due_date)
         if estimated_minutes is not None and (
             isinstance(estimated_minutes, bool)
@@ -146,10 +155,24 @@ class OfflineWorkspace:
             raise ValueError("Длительность должна быть от 5 до 1440 минут.")
         with self.conn:
             return self.conn.execute(
-                "INSERT INTO tasks (title, priority, due_date, estimated_minutes) "
-                "VALUES (?, ?, ?, ?)",
-                (title, priority, due_date, estimated_minutes),
+                "INSERT INTO tasks (title, priority, due_date, estimated_minutes, project) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (title, priority, due_date, estimated_minutes, project),
             ).lastrowid
+
+    @staticmethod
+    def _clean_project(project):
+        if not isinstance(project, str) or len(project.strip()) > 60:
+            raise ValueError("Название проекта должно быть не длиннее 60 символов.")
+        return " ".join(project.split())
+
+    def list_task_projects(self):
+        return dict(self.conn.execute("SELECT id, project FROM tasks").fetchall())
+
+    def list_project_names(self):
+        return [row[0] for row in self.conn.execute(
+            "SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project COLLATE NOCASE"
+        )]
 
     def list_tasks(self):
         return self.conn.execute("SELECT id, title, done FROM tasks ORDER BY done, id DESC").fetchall()
@@ -458,15 +481,15 @@ class OfflineWorkspace:
         """Archive the whole task before removal, preserving its original ID."""
         with self.conn:
             row = self.conn.execute(
-                "SELECT id, title, done, created_at, priority, due_date, estimated_minutes "
+                "SELECT id, title, done, created_at, priority, due_date, estimated_minutes, project "
                 "FROM tasks WHERE id = ?", (task_id,)
             ).fetchone()
             if row is None:
                 return False
             self.conn.execute(
                 "INSERT INTO deleted_tasks "
-                "(task_id, title, done, created_at, priority, due_date, estimated_minutes, deleted_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", row,
+                "(task_id, title, done, created_at, priority, due_date, estimated_minutes, project, deleted_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", row,
             )
             return self.conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,)).rowcount > 0
 
@@ -484,12 +507,12 @@ class OfflineWorkspace:
             return None
         with self.conn:
             row = self.conn.execute(
-                "SELECT task_id, title, done, created_at, priority, due_date, estimated_minutes "
+                "SELECT task_id, title, done, created_at, priority, due_date, estimated_minutes, project "
                 "FROM deleted_tasks WHERE archive_id = ?", (archive_id,)
             ).fetchone()
             if row is None:
                 return None
-            task_id, title, done, created_at, priority, due_date, minutes = row
+            task_id, title, done, created_at, priority, due_date, minutes, project = row
             existing = self.conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone()
             if existing:
                 task_id = max(
@@ -497,9 +520,9 @@ class OfflineWorkspace:
                     self.conn.execute("SELECT COALESCE(MAX(id), 0) FROM tasks").fetchone()[0],
                 ) + 1
             self.conn.execute(
-                "INSERT INTO tasks (id, title, done, created_at, priority, due_date, estimated_minutes) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (task_id, title, done, created_at, priority, due_date, minutes),
+                "INSERT INTO tasks (id, title, done, created_at, priority, due_date, estimated_minutes, project) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, title, done, created_at, priority, due_date, minutes, project),
             )
             self.conn.execute("DELETE FROM deleted_tasks WHERE archive_id = ?", (archive_id,))
             return task_id
