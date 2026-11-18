@@ -1865,25 +1865,37 @@ def run_gui_self_test() -> int:
                 panel.select_tab(1)
                 panel.note_editor.insert("1.0", "Заметка из интерфейса")
                 panel.save_note()
+                if panel.status.cget("text") != "Новая заметка сохранена.":
+                    raise RuntimeError("Note save feedback was not displayed.")
                 notes = panel.store.list_notes()
                 if len(notes) != 1 or notes[0][1] != "Заметка из интерфейса":
                     raise RuntimeError("Note editor failed to save.")
                 panel.notes.selection_set(str(notes[0][0]))
                 panel.edit_note()
+                if panel.note_counter.cget("text") != f"{len(notes[0][1])} / 1000":
+                    raise RuntimeError("Note counter did not refresh on edit.")
                 panel.note_editor.insert("end", " — обновлена")
                 panel.save_note()
+                if panel.status.cget("text") != "Заметка обновлена и сохранена.":
+                    raise RuntimeError("Note update feedback was not displayed.")
                 if panel.store.list_notes()[0][1] != "Заметка из интерфейса — обновлена":
                     raise RuntimeError("Note editor failed to update.")
                 panel.select_tab(2)
                 panel.memory_editor.insert("1.0", "Факт из интерфейса")
                 panel.save_memory()
+                if panel.status.cget("text") != "Новый факт памяти сохранён.":
+                    raise RuntimeError("Memory save feedback was not displayed.")
                 memories = panel.store.list_memories()
                 if len(memories) != 1 or memories[0][1] != "Факт из интерфейса":
                     raise RuntimeError("Memory editor failed to save.")
                 panel.memories.selection_set(str(memories[0][0]))
                 panel.edit_memory()
+                if panel.memory_counter.cget("text") != f"{len(memories[0][1])} / 500":
+                    raise RuntimeError("Memory counter did not refresh on edit.")
                 panel.memory_editor.insert("end", " — обновлён")
                 panel.save_memory()
+                if panel.status.cget("text") != "Факт памяти обновлён и сохранён.":
+                    raise RuntimeError("Memory update feedback was not displayed.")
                 if panel.store.list_memories()[0][1] != "Факт из интерфейса — обновлён":
                     raise RuntimeError("Memory editor failed to update.")
                 # Drafts must survive switching to another page.
