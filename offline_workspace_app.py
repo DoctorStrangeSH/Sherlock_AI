@@ -401,7 +401,7 @@ class WorkspaceWindow:
         editor = tk.Toplevel(owner)
         editor.title("Новая задача" if task is None else f"Задача №{task_id}")
         editor.configure(bg=BG)
-        editor.geometry("440x415")
+        editor.geometry("440x440")
         editor.resizable(False, False)
         editor.transient(owner)
         content = tk.Frame(editor, bg=BG, padx=22, pady=18)
@@ -482,6 +482,10 @@ class WorkspaceWindow:
                   relief="flat", padx=17, pady=9).pack(side="right")
         tk.Button(actions, text="Отмена", command=editor.destroy, bg=PANEL, fg=FG,
                   relief="flat", padx=14, pady=9).pack(side="right", padx=(0, 8))
+        tk.Label(content, text="Ctrl+Enter — сохранить · Esc — отмена",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(
+                     anchor="w", pady=(8, 0))
+        editor.bind("<Control-Return>", lambda _event: (save(), "break")[1])
         editor.bind("<Escape>", lambda _event: editor.destroy())
         editor.grab_set()
         title_input.focus_set()
