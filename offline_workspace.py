@@ -99,6 +99,44 @@ class OfflineWorkspace:
                 "INSERT INTO tasks (title, priority, due_date) VALUES (?, ?, ?)",
                 (title, priority, due_date)).lastrowid
 
+    def save_task_fields(self, task_id, title, priority="normal", due_date=None,
+                         estimated_minutes=None):
+        """Atomically update the editable fields of an existing task."""
+        if not isinstance(task_id, int) or isinstance(task_id, bool) or task_id <= 0:
+            raise ValueError("Некорректный номер задачи.")
+        title = self._clean(title, 300)
+        priority, due_date = self._validate_task_meta(priority, due_date)
+        if estimated_minutes is not None and (
+            isinstance(estimated_minutes, bool)
+            or not isinstance(estimated_minutes, int)
+            or not 5 <= estimated_minutes <= 1440
+        ):
+            raise ValueError("Длительность должна быть от 5 до 1440 минут.")
+        with self.conn:
+            return self.conn.execute(
+                "UPDATE tasks SET title = ?, priority = ?, due_date = ?, "
+                "estimated_minutes = ? WHERE id = ?",
+                (title, priority, due_date, estimated_minutes, task_id),
+            ).rowcount > 0
+
+    def add_task_full(self, title, priority="normal", due_date=None,
+                      estimated_minutes=None):
+        """Create a task with all fields in one transaction."""
+        title = self._clean(title, 300)
+        priority, due_date = self._validate_task_meta(priority, due_date)
+        if estimated_minutes is not None and (
+            isinstance(estimated_minutes, bool)
+            or not isinstance(estimated_minutes, int)
+            or not 5 <= estimated_minutes <= 1440
+        ):
+            raise ValueError("Длительность должна быть от 5 до 1440 минут.")
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO tasks (title, priority, due_date, estimated_minutes) "
+                "VALUES (?, ?, ?, ?)",
+                (title, priority, due_date, estimated_minutes),
+            ).lastrowid
+
     def list_tasks(self):
         return self.conn.execute("SELECT id, title, done FROM tasks ORDER BY done, id DESC").fetchall()
 
