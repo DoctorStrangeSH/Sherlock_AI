@@ -174,6 +174,21 @@ class OfflineWorkspace:
             "SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project COLLATE NOCASE"
         )]
 
+    def list_project_overview(self, today=None):
+        """Project summary, including unassigned tasks and only known estimates."""
+        today = today or date.today().isoformat()
+        return self.conn.execute(
+            "SELECT project, COUNT(*), "
+            "SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN done = 0 AND due_date IS NOT NULL AND due_date < ? THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN done = 0 AND due_date = ? THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN done = 0 THEN COALESCE(estimated_minutes, 0) ELSE 0 END), "
+            "SUM(CASE WHEN done = 0 AND estimated_minutes IS NULL THEN 1 ELSE 0 END) "
+            "FROM tasks GROUP BY project ORDER BY project COLLATE NOCASE",
+            (today, today),
+        ).fetchall()
+
     def list_tasks(self):
         return self.conn.execute("SELECT id, title, done FROM tasks ORDER BY done, id DESC").fetchall()
 
