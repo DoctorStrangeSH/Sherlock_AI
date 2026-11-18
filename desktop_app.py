@@ -1872,7 +1872,7 @@ def run_gui_self_test() -> int:
                     for child in widget.winfo_children():
                         yield child
                         yield from descendants(child)
-                fields = [child for child in descendants(editor) if isinstance(child, tk.Entry)]
+                fields = [child for child in descendants(editor) if type(child) is tk.Entry]
                 if len(fields) != 3:
                     raise RuntimeError("Task editor fields are missing.")
                 fields[0].delete(0, "end")
@@ -1945,6 +1945,10 @@ def run_gui_self_test() -> int:
                     if saved.list_memories()[0][1] != "Факт из интерфейса — обновлён":
                         raise RuntimeError("Memory was lost after closing Tk.")
             finally:
+                # A failed assertion must not leave SQLite locked on Windows.
+                panel = getattr(locals().get("app"), "workspace_panel", None)
+                if panel is not None:
+                    panel.store.close()
                 try:
                     root.destroy()
                 except tk.TclError:
