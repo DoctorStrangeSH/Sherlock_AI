@@ -102,6 +102,8 @@ class WorkspaceWindow:
         )
         self.task_filter_picker.pack(side="left")
         self.task_filter_picker.bind("<<ComboboxSelected>>", lambda _event: self.refresh())
+        self.task_search = self._search_bar(self.task_frame, "Поиск по названию задачи…")
+        self.task_search.trace_add("write", lambda *_args: self.refresh())
         self.task_count_label = tk.Label(filters, text="", bg=BG, fg=MUTED,
                                          font=("Segoe UI", 9))
         self.task_count_label.pack(side="right")
@@ -258,7 +260,11 @@ class WorkspaceWindow:
             "Выполненные": {"done"},
             "Все": set(states),
         }[active_filter]
-        visible_tasks = [task for task in detailed_tasks if task_bucket(task) in buckets]
+        task_query = self.task_search.get().strip().casefold()
+        visible_tasks = [
+            task for task in detailed_tasks
+            if task_bucket(task) in buckets and task_query in task[1].casefold()
+        ]
         visible_tasks.sort(key=lambda task: (
             {"overdue": 0, "today": 1, "upcoming": 2, "unscheduled": 3, "done": 4}[task_bucket(task)],
             {"high": 0, "normal": 1, "low": 2}.get(task[3], 1),
@@ -269,6 +275,7 @@ class WorkspaceWindow:
             self.tasks_hint.pack_forget()
         else:
             empty_text = ("Задач пока нет. Добавь первую выше." if not detailed_tasks else
+                          "По запросу задач нет." if task_query else
                           "По выбранному фильтру задач нет.")
             self.tasks_hint.configure(text=empty_text)
             self.tasks_hint.pack(fill="x", padx=10, pady=(0, 3), before=self.tasks)
@@ -365,6 +372,7 @@ class WorkspaceWindow:
         try:
             self.store.add_task(title)
             self.task_filter.set("Открытые")
+            self.task_search.set("")
             self.refresh()
             return True
         except ValueError as exc:
@@ -463,6 +471,8 @@ class WorkspaceWindow:
                 return
             editor.destroy()
             self.task_filter.set("Открытые" if task is None else self.task_filter.get())
+            if task is None:
+                self.task_search.set("")
             self.refresh()
             self.status.configure(text="Задача создана." if task is None else "Изменения сохранены.")
 
