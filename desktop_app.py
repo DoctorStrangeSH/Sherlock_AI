@@ -1862,6 +1862,35 @@ def run_gui_self_test() -> int:
                     raise RuntimeError("Clearing task search did not restore all tasks.")
                 panel.task_filter.set("Открытые")
                 panel.refresh()
+                # Edit a task through its actual modal form and Save button.
+                panel.open_task_editor(task_id)
+                editor = next(
+                    child for child in root.winfo_children()
+                    if isinstance(child, tk.Toplevel)
+                )
+                def descendants(widget):
+                    for child in widget.winfo_children():
+                        yield child
+                        yield from descendants(child)
+                fields = [child for child in descendants(editor) if isinstance(child, tk.Entry)]
+                if len(fields) != 3:
+                    raise RuntimeError("Task editor fields are missing.")
+                fields[0].delete(0, "end")
+                fields[0].insert(0, "Задача после правки")
+                fields[1].insert(0, "35")
+                fields[2].insert(0, "2026-11-18")
+                priority_picker = next(
+                    child for child in descendants(editor) if isinstance(child, ttk.Combobox)
+                )
+                priority_picker.set("Высокий")
+                save_button = next(
+                    child for child in descendants(editor)
+                    if isinstance(child, tk.Button) and child.cget("text") == "Сохранить"
+                )
+                save_button.invoke()
+                updated = next(row for row in panel.store.list_task_estimates() if row[0] == task_id)
+                if updated[1:] != ("Задача после правки", 0, "high", "2026-11-18", 35):
+                    raise RuntimeError("Task modal did not save all fields.")
                 panel.select_tab(1)
                 panel.note_editor.insert("1.0", "Заметка из интерфейса")
                 panel.save_note()
