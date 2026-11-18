@@ -58,6 +58,20 @@ class OfflineWorkspace:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # Keep recoverable task snapshots separate from the active task list.
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS deleted_tasks (
+                archive_id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                done INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                due_date TEXT,
+                estimated_minutes INTEGER,
+                deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         # Compatible migration: never recreate the existing tasks table.
         columns = {row[1] for row in self.conn.execute("PRAGMA table_info(tasks)")}
         with self.conn:
@@ -441,8 +455,47 @@ class OfflineWorkspace:
             ).rowcount > 0
 
     def delete_task(self, task_id):
+        """Archive the whole task before removal, preserving its original ID."""
         with self.conn:
+            row = self.conn.execute(
+                "SELECT id, title, done, created_at, priority, due_date, estimated_minutes "
+                "FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is None:
+                return False
+            self.conn.execute(
+                "INSERT INTO deleted_tasks "
+                "(task_id, title, done, created_at, priority, due_date, estimated_minutes, deleted_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", row,
+            )
             return self.conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,)).rowcount > 0
+
+    def restore_last_deleted_task(self):
+        """Restore the latest archived task, even after the app restarts."""
+        with self.conn:
+            row = self.conn.execute(
+                "SELECT archive_id, task_id, title, done, created_at, priority, due_date, "
+                "estimated_minutes FROM deleted_tasks "
+                "ORDER BY archive_id DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            archive_id, task_id, title, done, created_at, priority, due_date, minutes = row
+            # SQLite may reuse the last deleted row ID. Keep the original when free;
+            # otherwise give the restored task a fresh ID without replacing live data.
+            existing = self.conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if existing:
+                task_id = max(
+                    task_id,
+                    self.conn.execute("SELECT COALESCE(MAX(id), 0) FROM tasks").fetchone()[0],
+                ) + 1
+            self.conn.execute(
+                "INSERT INTO tasks (id, title, done, created_at, priority, due_date, estimated_minutes) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (task_id, title, done, created_at, priority, due_date, minutes),
+            )
+            self.conn.execute("DELETE FROM deleted_tasks WHERE archive_id = ?", (archive_id,))
+            return task_id
 
     def add_note(self, content):
         content = self._clean(content, 1000)
