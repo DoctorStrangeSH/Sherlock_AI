@@ -70,37 +70,57 @@ class SherlockDesktop:
         screen_width = root.winfo_screenwidth()
         screen_height = root.winfo_screenheight()
         root.geometry(f"{min(1120, screen_width - 40)}x{min(760, screen_height - 90)}")
-        root.minsize(780, 550)
+        root.minsize(760, 550)
         root.configure(bg=BACKGROUND)
         root.protocol("WM_DELETE_WINDOW", self.close)
 
-        header = tk.Frame(root, bg=BACKGROUND, padx=20, pady=10)
+        header = tk.Frame(root, bg=BACKGROUND, padx=20, pady=11)
         header.pack(fill="x")
-        tk.Label(header, text="✦ Sherlock AI", font=("Segoe UI", 22, "bold"),
-                 fg=TEXT, bg=BACKGROUND).pack(anchor="w")
-        tk.Label(header, text="Твой локальный помощник · приватный разговор",
-                 font=("Segoe UI", 10), fg=MUTED, bg=BACKGROUND).pack(anchor="w")
-        self.activity = tk.Label(header, text="Готов к общению · Telegram не требуется",
-                                 font=("Segoe UI", 9), fg="#98e7c9", bg=BACKGROUND)
-        self.activity.pack(anchor="w", pady=(7, 0))
+        brand_row = tk.Frame(header, bg=BACKGROUND)
+        brand_row.pack(fill="x")
+        tk.Label(brand_row, text="✦ Sherlock AI", font=("Segoe UI", 20, "bold"),
+                 fg=TEXT, bg=BACKGROUND).pack(side="left")
+        self.activity = tk.Label(
+            brand_row, text="Готов к общению · Telegram не требуется",
+            font=("Segoe UI", 9), fg="#98e7c9", bg=BACKGROUND,
+            anchor="e",
+        )
+        self.activity.pack(side="right", padx=(12, 0))
+        tk.Label(header, text="Личный помощник · локально и приватно",
+                 font=("Segoe UI", 9), fg=MUTED, bg=BACKGROUND).pack(anchor="w", pady=(3, 0))
 
         body = tk.Frame(root, bg=BACKGROUND)
         body.pack(fill="both", expand=True)
-        navigation = tk.Frame(body, bg="#10182a", width=154, padx=10, pady=14)
-        navigation.pack(side="left", fill="y")
-        navigation.pack_propagate(False)
-        tk.Label(navigation, text="РАЗДЕЛЫ", bg="#10182a", fg=MUTED,
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(2, 12))
+        self.navigation = tk.Frame(body, bg="#10182a", width=164, padx=8, pady=10)
+        self.navigation.pack(side="left", fill="y")
+        self.navigation.pack_propagate(False)
+        self.nav_heading = tk.Label(self.navigation, text="РАЗДЕЛЫ", bg="#10182a", fg=MUTED,
+                                    font=("Segoe UI", 9, "bold"))
+        self.nav_heading.pack(anchor="w", padx=12, pady=(4, 12))
+        self.nav_items = (
+            ("●", "Общение", "chat"), ("◷", "Мой день", "day"),
+            ("✓", "Задачи", "tasks"), ("✎", "Заметки", "notes"),
+            ("◇", "Память", "memory"), ("▤", "История", "history"),
+            ("⌕", "Инструменты", "tools"), ("⚙", "Настройки", "settings"),
+        )
         self.nav_buttons = {}
-        for label, target in (("● Общение", "chat"), ("◷ Мой день", "day"), ("✓ Задачи", "tasks"), ("✎ Заметки", "notes"), ("◇ Память", "memory"), ("▤ История", "history"), ("⌕ Инструменты", "tools"), ("⚙ Настройки", "settings")):
-            button = tk.Button(navigation, text=label, command=lambda page=target: self.show_page(page),
-                               bg=INPUT if target == "chat" else "#10182a", fg=TEXT,
-                               activebackground=INPUT, activeforeground=TEXT,
-                               relief="flat", padx=12, pady=11, anchor="w")
-            button.pack(fill="x", pady=(0, 6))
+        for icon, label, target in self.nav_items:
+            button = tk.Button(
+                self.navigation, text=f"{icon}  {label}",
+                command=lambda page=target: self.show_page(page),
+                bg=INPUT if target == "chat" else "#10182a", fg=TEXT,
+                activebackground=INPUT, activeforeground=TEXT,
+                relief="flat", borderwidth=0, highlightthickness=0,
+                padx=12, pady=8, anchor="w", font=("Segoe UI", 10),
+            )
+            button.pack(fill="x", pady=(0, 3))
             self.nav_buttons[target] = button
-        tk.Label(navigation, text="Локально · приватно", bg="#10182a", fg=MUTED,
-                 font=("Segoe UI", 8)).pack(side="bottom", pady=10)
+        self.nav_privacy = tk.Label(
+            self.navigation, text="● Только на устройстве",
+            bg="#10182a", fg="#98e7c9", font=("Segoe UI", 8),
+        )
+        self.nav_privacy.pack(side="bottom", pady=8)
+        self.nav_compact = False
         self.content_area = tk.Frame(body, bg=BACKGROUND)
         self.content_area.pack(side="left", fill="both", expand=True)
         self.chat_page = tk.Frame(self.content_area, bg=BACKGROUND)
@@ -472,6 +492,35 @@ class SherlockDesktop:
         self.root.after(1000, self.tick_focus)
         threading.Thread(target=self.check_model, daemon=True).start()
         self.input.focus_set()
+        self.root.bind("<Configure>", self.on_window_resize)
+        self.root.after_idle(lambda: self.update_navigation_layout(self.root.winfo_width()))
+
+    def on_window_resize(self, event) -> None:
+        if event.widget is self.root:
+            self.activity.configure(wraplength=max(160, event.width - 320))
+            self.update_navigation_layout(event.width)
+
+    def update_navigation_layout(self, width: int) -> None:
+        compact = width < 960
+        if self.nav_compact == compact:
+            return
+        self.nav_compact = compact
+        self.navigation.configure(width=56 if compact else 164,
+                                  padx=4 if compact else 8)
+        if compact:
+            self.nav_heading.pack_forget()
+            self.nav_privacy.pack_forget()
+        else:
+            self.nav_heading.pack(anchor="w", padx=12, pady=(4, 12), before=self.nav_buttons["chat"])
+            self.nav_privacy.pack(side="bottom", pady=8)
+        for icon, label, target in self.nav_items:
+            button = self.nav_buttons[target]
+            button.configure(
+                text=icon if compact else f"{icon}  {label}",
+                anchor="center" if compact else "w",
+                padx=2 if compact else 12,
+                font=("Segoe UI", 13 if compact else 10),
+            )
 
     def show_daily_briefing(self) -> None:
         """Show only locally stored urgent tasks; startup must survive a DB error."""
