@@ -470,19 +470,26 @@ class OfflineWorkspace:
             )
             return self.conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,)).rowcount > 0
 
-    def restore_last_deleted_task(self):
-        """Restore the latest archived task, even after the app restarts."""
+    def list_deleted_tasks(self, limit=200):
+        """List recoverable tasks, newest first, without modifying their state."""
+        limit = max(1, min(int(limit), 500))
+        return self.conn.execute(
+            "SELECT archive_id, title, done, priority, due_date, estimated_minutes, deleted_at "
+            "FROM deleted_tasks ORDER BY archive_id DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+    def restore_deleted_task(self, archive_id):
+        """Restore a selected archived task without overwriting an active ID."""
+        if not isinstance(archive_id, int) or isinstance(archive_id, bool) or archive_id <= 0:
+            return None
         with self.conn:
             row = self.conn.execute(
-                "SELECT archive_id, task_id, title, done, created_at, priority, due_date, "
-                "estimated_minutes FROM deleted_tasks "
-                "ORDER BY archive_id DESC LIMIT 1"
+                "SELECT task_id, title, done, created_at, priority, due_date, estimated_minutes "
+                "FROM deleted_tasks WHERE archive_id = ?", (archive_id,)
             ).fetchone()
             if row is None:
                 return None
-            archive_id, task_id, title, done, created_at, priority, due_date, minutes = row
-            # SQLite may reuse the last deleted row ID. Keep the original when free;
-            # otherwise give the restored task a fresh ID without replacing live data.
+            task_id, title, done, created_at, priority, due_date, minutes = row
             existing = self.conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone()
             if existing:
                 task_id = max(
@@ -496,6 +503,13 @@ class OfflineWorkspace:
             )
             self.conn.execute("DELETE FROM deleted_tasks WHERE archive_id = ?", (archive_id,))
             return task_id
+
+    def restore_last_deleted_task(self):
+        """Restore the most recently deleted task, even after restarting."""
+        row = self.conn.execute(
+            "SELECT archive_id FROM deleted_tasks ORDER BY archive_id DESC LIMIT 1"
+        ).fetchone()
+        return self.restore_deleted_task(row[0]) if row else None
 
     def add_note(self, content):
         content = self._clean(content, 1000)
