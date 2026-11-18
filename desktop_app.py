@@ -1909,6 +1909,30 @@ def run_gui_self_test() -> int:
                 panel.refresh()
                 if tuple(panel.tasks.get_children()) != (str(task_id),):
                     raise RuntimeError("Project filter did not select its tasks.")
+                overview_rows = panel.store.list_project_overview(date.today().isoformat())
+                project_row = next(row for row in overview_rows if row[0] == "Sherlock AI")
+                if project_row[1:7] != (1, 1, 0, 0, 1, 35) or project_row[7] != 0:
+                    raise RuntimeError("Project dashboard aggregates are incorrect.")
+                unassigned_row = next(row for row in overview_rows if row[0] == "")
+                if unassigned_row[1:4] != (1, 1, 0):
+                    raise RuntimeError("Unassigned tasks are missing from project overview.")
+                panel.open_project_overview()
+                overview_table = panel.project_overview_table
+                project_item = next(
+                    item for item in overview_table.get_children()
+                    if overview_table.item(item, "values")[0] == "Sherlock AI"
+                )
+                overview_table.selection_set(project_item)
+                overview_buttons = [
+                    child for child in descendants(panel.project_overview_window)
+                    if isinstance(child, tk.Button)
+                    and child.cget("text") == "Открыть задачи проекта"
+                ]
+                overview_buttons[0].invoke()
+                if panel.project_filter.get() != "Sherlock AI" or (
+                    tuple(panel.tasks.get_children()) != (str(task_id),)
+                ):
+                    raise RuntimeError("Project dashboard navigation failed.")
                 panel.project_filter.set("Без проекта")
                 panel.refresh()
                 if panel.tasks.exists(str(task_id)):
