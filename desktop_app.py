@@ -1944,6 +1944,8 @@ def run_gui_self_test() -> int:
                     raise RuntimeError("Task list did not show its project.")
                 if "● Высокий" not in values or "Сегодня" not in values:
                     raise RuntimeError("Task priority or due date styling was not shown.")
+                panel.task_filter.set("Открытые")
+                panel.refresh()
                 panel.tasks.selection_set(str(task_id))
                 panel.toggle_task_shortcut()
                 finished = next(row for row in panel.store.list_tasks() if row[0] == task_id)
