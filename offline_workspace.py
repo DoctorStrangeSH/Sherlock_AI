@@ -73,6 +73,14 @@ class OfflineWorkspace:
                 deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS projects (
+                name TEXT PRIMARY KEY COLLATE NOCASE,
+                description TEXT NOT NULL DEFAULT '',
+                goal TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         # Compatible migration: never recreate the existing tasks table.
         columns = {row[1] for row in self.conn.execute("PRAGMA table_info(tasks)")}
         with self.conn:
@@ -166,26 +174,52 @@ class OfflineWorkspace:
             raise ValueError("Название проекта должно быть не длиннее 60 символов.")
         return " ".join(project.split())
 
+    def save_project(self, name, description="", goal=""):
+        name = self._clean_project(name)
+        if not name:
+            raise ValueError("Укажи название проекта.")
+        if not isinstance(description, str) or len(description.strip()) > 500:
+            raise ValueError("Описание проекта должно быть до 500 символов.")
+        if not isinstance(goal, str) or len(goal.strip()) > 300:
+            raise ValueError("Цель проекта должна быть до 300 символов.")
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO projects (name, description, goal) VALUES (?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET description = excluded.description, goal = excluded.goal",
+                (name, description.strip(), goal.strip()),
+            )
+        return name
+
+    def list_project_details(self):
+        return self.conn.execute(
+            "SELECT name, description, goal FROM projects ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+
     def list_task_projects(self):
         return dict(self.conn.execute("SELECT id, project FROM tasks").fetchall())
 
     def list_project_names(self):
         return [row[0] for row in self.conn.execute(
-            "SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project COLLATE NOCASE"
+            "SELECT name FROM ("
+            " SELECT name FROM projects UNION SELECT project AS name FROM tasks WHERE project != ''"
+            ") ORDER BY name COLLATE NOCASE"
         )]
 
     def list_project_overview(self, today=None):
         """Project summary, including unassigned tasks and only known estimates."""
         today = today or date.today().isoformat()
         return self.conn.execute(
-            "SELECT project, COUNT(*), "
-            "SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END), "
-            "SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END), "
+            "SELECT project, COUNT(done), "
+            "COALESCE(SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END), 0), "
+            "COALESCE(SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END), 0), "
             "SUM(CASE WHEN done = 0 AND due_date IS NOT NULL AND due_date < ? THEN 1 ELSE 0 END), "
             "SUM(CASE WHEN done = 0 AND due_date = ? THEN 1 ELSE 0 END), "
             "SUM(CASE WHEN done = 0 THEN COALESCE(estimated_minutes, 0) ELSE 0 END), "
             "SUM(CASE WHEN done = 0 AND estimated_minutes IS NULL THEN 1 ELSE 0 END) "
-            "FROM tasks GROUP BY project ORDER BY project COLLATE NOCASE",
+            "FROM (SELECT project, done, due_date, estimated_minutes FROM tasks "
+            "UNION ALL SELECT name AS project, NULL, NULL, NULL FROM projects "
+            "WHERE name NOT IN (SELECT project FROM tasks)) "
+            "GROUP BY project ORDER BY project COLLATE NOCASE",
             (today, today),
         ).fetchall()
 
