@@ -149,56 +149,65 @@ class SherlockDesktop:
             ),
         )
         tk.Label(self.day_content, text="Мой день", font=("Segoe UI", 20, "bold"),
-                 bg=BACKGROUND, fg=TEXT).pack(anchor="w", padx=24, pady=(22, 4))
+                 bg=BACKGROUND, fg=TEXT).pack(anchor="w", padx=20, pady=(12, 2))
         tk.Label(self.day_content, text="Задачи и расписание · только локальные данные",
-                 bg=BACKGROUND, fg=MUTED).pack(anchor="w", padx=24, pady=(0, 12))
+                 bg=BACKGROUND, fg=MUTED).pack(anchor="w", padx=20, pady=(0, 9))
         controls = tk.Frame(self.day_content, bg=BACKGROUND)
-        controls.pack(fill="x", padx=24, pady=(0, 10))
+        controls.pack(fill="x", padx=20, pady=(0, 9))
         tk.Button(controls, text="↻ Обновить", command=self.refresh_day_page,
                   bg=ACCENT, fg=BACKGROUND, relief="flat", padx=12, pady=8).pack(side="left")
         tk.Button(controls, text="Все задачи", command=lambda: self.show_page("tasks"),
                   bg=INPUT, fg=TEXT, relief="flat", padx=12, pady=8).pack(side="left", padx=(8, 0))
         self.day_summary = tk.Label(self.day_content, bg=SURFACE, fg=TEXT, justify="left",
-                                    anchor="w", padx=16, pady=13, wraplength=500,
-                                    font=("Segoe UI", 10, "bold"))
-        self.day_summary.pack(fill="x", padx=24, pady=(0, 10))
+                                    anchor="w", padx=14, pady=10, wraplength=540,
+                                    font=("Segoe UI", 9, "bold"))
+        self.day_summary.pack(fill="x", padx=20, pady=(0, 8))
         metrics = tk.Frame(self.day_content, bg=BACKGROUND)
-        metrics.pack(fill="x", padx=24, pady=(0, 10))
+        metrics.pack(fill="x", padx=20, pady=(0, 8))
         self.day_metric_values = {}
         for key, title in (("tasks", "АКТУАЛЬНЫЕ ЗАДАЧИ"),
                            ("focus", "ФОКУС СЕГОДНЯ"),
                            ("load", "ОЦЕНКА НАГРУЗКИ")):
-            card = tk.Frame(metrics, bg=SURFACE, padx=13, pady=10)
+            card = tk.Frame(metrics, bg=SURFACE, padx=10, pady=8)
             card.pack(side="left", fill="x", expand=True, padx=(0, 7))
             tk.Label(card, text=title, bg=SURFACE, fg=MUTED,
                      font=("Segoe UI", 8, "bold")).pack(anchor="w")
             value = tk.Label(card, text="—", bg=SURFACE, fg=TEXT,
-                             font=("Segoe UI", 14, "bold"))
+                             font=("Segoe UI", 12, "bold"))
             value.pack(anchor="w", pady=(5, 0))
             self.day_metric_values[key] = value
         self.day_progress = ttk.Progressbar(self.day_content, mode="determinate", maximum=100)
-        self.day_progress.pack(fill="x", padx=24, pady=(0, 12))
+        self.day_progress.pack(fill="x", padx=20, pady=(0, 9))
         day_tabs = tk.Frame(self.day_content, bg=BACKGROUND)
-        day_tabs.pack(fill="x", padx=24, pady=(0, 10))
+        day_tabs.pack(fill="x", padx=20, pady=(0, 8))
         self.day_tab_buttons = {}
         for key, label in (("tasks", "Задачи и фокус"), ("analytics", "Расписание и аналитика")):
             button = tk.Button(day_tabs, text=label,
                                command=lambda tab=key: self.show_day_panel(tab),
-                               bg=INPUT, fg=TEXT, relief="flat", padx=16, pady=9)
+                               bg=INPUT, fg=TEXT, relief="flat", padx=12, pady=7)
             button.pack(side="left", padx=(0, 8))
             self.day_tab_buttons[key] = button
         self.day_action_panel = tk.Frame(self.day_content, bg=BACKGROUND)
         self.day_analysis_panel = tk.Frame(self.day_content, bg=BACKGROUND)
-        tk.Label(self.day_action_panel, text="Ближайшие задачи", bg=BACKGROUND, fg=TEXT,
-                 font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=24)
-        self.day_tasks = tk.Listbox(self.day_action_panel, height=5, bg=SURFACE, fg=TEXT,
+        task_toolbar = tk.Frame(self.day_action_panel, bg=BACKGROUND)
+        task_toolbar.pack(fill="x", padx=20, pady=(0, 5))
+        tk.Label(task_toolbar, text="Ближайшие задачи", bg=BACKGROUND, fg=TEXT,
+                 font=("Segoe UI", 11, "bold")).pack(side="left")
+        tk.Button(task_toolbar, text="✓ Выполнено", command=self.complete_day_task,
+                  bg=INPUT, fg=TEXT, relief="flat", padx=12, pady=6).pack(side="right")
+        self.day_tasks = tk.Listbox(self.day_action_panel, height=4, bg=SURFACE, fg=TEXT,
                                     selectbackground=ACCENT, selectforeground=BACKGROUND,
                                     borderwidth=0, highlightthickness=0,
                                     font=("Segoe UI", 10))
-        self.day_tasks.pack(fill="x", padx=24, pady=(7, 7))
+        self.day_tasks.pack(fill="x", padx=20, pady=(2, 6))
+        self.day_empty_tasks = tk.Label(
+            self.day_action_panel, text="На сегодня нет незавершённых задач. Хорошая работа! ✨",
+            bg=SURFACE, fg=MUTED, padx=16, pady=16, anchor="w",
+            font=("Segoe UI", 10),
+        )
         self.day_task_rows = []
         focus_card = tk.Frame(self.day_action_panel, bg=SURFACE, padx=16, pady=12)
-        focus_card.pack(fill="x", padx=24, pady=(2, 12))
+        focus_card.pack(fill="x", padx=20, pady=(2, 10))
         self.focus_label = tk.Label(
             focus_card, text="ГОТОВ К РАБОТЕ", bg=SURFACE, fg=MUTED,
             anchor="w", font=("Segoe UI", 9, "bold"),
@@ -242,29 +251,27 @@ class SherlockDesktop:
             button.pack(side="left", padx=(0, 8))
             self.focus_buttons[key] = button
         self.refresh_focus_label()
-        tk.Button(self.day_action_panel, text="✓ Отметить выбранную выполненной",
-                  command=self.complete_day_task, bg=INPUT, fg=TEXT, relief="flat",
-                  padx=12, pady=7).pack(anchor="w", padx=24, pady=(0, 12))
         self.day_feedback = tk.Label(self.day_action_panel, text="", bg=BACKGROUND, fg=MUTED,
                                      anchor="w", justify="left")
-        self.day_feedback.pack(fill="x", padx=24, pady=(0, 5))
-        tk.Label(self.day_action_panel, text="Предложенные задачи для переноса",
+        self.day_feedback.pack(fill="x", padx=20, pady=(0, 5))
+        self.day_rebalance_section = tk.Frame(self.day_action_panel, bg=BACKGROUND)
+        tk.Label(self.day_rebalance_section, text="Предложенные задачи для переноса",
                  bg=BACKGROUND, fg=TEXT,
-                 font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=24)
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=20)
         self.day_rebalance_tasks = tk.Listbox(
-            self.day_action_panel, height=3, selectmode="extended",
+            self.day_rebalance_section, height=3, selectmode="extended",
             bg=SURFACE, fg=TEXT, selectbackground=ACCENT,
             selectforeground=BACKGROUND, borderwidth=0,
             highlightthickness=0, exportselection=False,
             font=("Segoe UI", 10),
         )
-        self.day_rebalance_tasks.pack(fill="x", padx=24, pady=(5, 6))
+        self.day_rebalance_tasks.pack(fill="x", padx=20, pady=(5, 6))
         self.day_rebalance_rows = []
         self.day_rebalance_date = None
-        tk.Button(self.day_action_panel, text="→ Предпросмотр и перенос выбранных на завтра",
+        tk.Button(self.day_rebalance_section, text="→ Предпросмотр и перенос выбранных на завтра",
                   command=self.confirm_day_rebalance, bg=INPUT, fg=TEXT,
                   relief="flat", padx=12, pady=7).pack(
-                      anchor="w", padx=24, pady=(0, 10))
+                      anchor="w", padx=20, pady=(0, 10))
         self.day_text = ScrolledText(self.day_analysis_panel, wrap="word", bg=SURFACE, fg=TEXT,
                                     font=("Segoe UI", 10), relief="flat", padx=16,
                                     pady=14, state="disabled")
@@ -1001,6 +1008,18 @@ class SherlockDesktop:
                         self.day_tasks.itemconfig(index, fg="#ffd38a")
                     if task_id == selected_id:
                         self.day_tasks.selection_set(index)
+                if open_tasks:
+                    self.day_empty_tasks.pack_forget()
+                    self.day_tasks.pack(fill="x", padx=20, pady=(2, 6),
+                                        before=self.focus_label.master)
+                else:
+                    self.day_tasks.pack_forget()
+                    self.day_empty_tasks.pack(fill="x", padx=20, pady=(2, 6),
+                                              before=self.focus_label.master)
+                if self.day_rebalance_rows:
+                    self.day_rebalance_section.pack(fill="x", pady=(4, 7))
+                else:
+                    self.day_rebalance_section.pack_forget()
                 self.day_metric_values["tasks"].configure(
                     text=f"{sum(not item[2] for item in relevant)} открыто",
                     fg="#ffb0a5" if any(not item[2] and item[4] < now.date().isoformat() for item in relevant)
