@@ -1839,8 +1839,11 @@ def run_gui_self_test() -> int:
                 app.show_page("chat")
                 app.close()
             finally:
-                if root.winfo_exists():
+                try:
                     root.destroy()
+                except tk.TclError:
+                    # app.close() has already destroyed the Tcl application.
+                    pass
     return 0
 
 
