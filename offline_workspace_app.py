@@ -117,7 +117,9 @@ class WorkspaceWindow:
         self.tasks.tag_configure("overdue", foreground="#ffb0a5")
         self.tasks.tag_configure("today", foreground="#ffd38a")
         self.tasks.tag_configure("done", foreground="#98e7c9")
+        self.tasks.tag_configure("high", foreground="#f8c978")
         self.tasks.bind("<Double-1>", lambda _event: self.edit_task_details())
+        self.tasks.bind("<space>", self.complete_task_shortcut)
         self.note_search = self._search_bar(self.note_frame, "Поиск по заметкам…")
         self.notes_empty = tk.Label(
             self.note_frame, text="Заметок пока нет. Нажми «Новая», чтобы создать первую.",
@@ -282,10 +284,15 @@ class WorkspaceWindow:
         for task in visible_tasks:
             task_id, title, done, priority, due_date, minutes = task
             bucket = task_bucket(task)
-            tags = (bucket,) if bucket in ("overdue", "today", "done") else ()
+            tags = (bucket,) if bucket in ("overdue", "today", "done") else (
+                ("high",) if priority == "high" else ()
+            )
+            priority_text = ("● " if priority == "high" else "") + priority_labels.get(priority, "Обычный")
+            due_text = ("Сегодня" if bucket == "today" else
+                        "⚠ " + due_date if bucket == "overdue" else due_date or "—")
             self.tasks.insert("", "end", iid=str(task_id), tags=tags,
                               values=(states[bucket], title,
-                                      priority_labels.get(priority, "Обычный"), due_date or "—",
+                                      priority_text, due_text,
                                       f"{minutes} мин." if minutes else "—"))
         if selected is not None and self.tasks.exists(str(selected)):
             self.tasks.selection_set(str(selected))
@@ -517,6 +524,12 @@ class WorkspaceWindow:
         if task_id is not None:
             self.store.complete_task(task_id)
             self.refresh()
+            self.status.configure(text="Задача отмечена выполненной.")
+
+    def complete_task_shortcut(self, _event=None):
+        """Space marks the focused task done without opening another dialog."""
+        self.complete_task()
+        return "break"
 
     def delete_task(self):
         task_id = self._selected(self.tasks)
