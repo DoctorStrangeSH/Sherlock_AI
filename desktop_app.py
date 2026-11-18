@@ -1750,9 +1750,9 @@ class SherlockDesktop:
         self.append("Sherlock AI", "Начнём с чистого листа! ✨", "assistant")
 
     def close(self) -> None:
+        if self.workspace_panel is not None and not self.workspace_panel.close():
+            return
         self.closed = True
-        if self.workspace_panel is not None:
-            self.workspace_panel.close()
         self.root.destroy()
 
 
