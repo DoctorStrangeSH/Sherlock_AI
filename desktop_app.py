@@ -1937,6 +1937,27 @@ def run_gui_self_test() -> int:
                     raise RuntimeError("Delete undo feedback was not displayed.")
                 panel.task_filter.set("Открытые")
                 panel.refresh()
+                # The archive must restore an arbitrary filtered item, not just the last.
+                third_id = panel.store.add_task("Третья архивная задача")
+                panel.store.delete_task(other_id)
+                panel.store.delete_task(third_id)
+                panel.open_task_archive()
+                panel.archive_query.set("ВТОРАЯ")
+                archive_ids = panel.archive_table.get_children()
+                if len(archive_ids) != 1:
+                    raise RuntimeError("Archive search did not filter deleted tasks.")
+                panel.archive_table.selection_set(archive_ids[0])
+                archive_window = panel.archive_window
+                restore_button = next(
+                    child for child in descendants(archive_window)
+                    if isinstance(child, tk.Button) and child.cget("text") == "Восстановить выбранную"
+                )
+                restore_button.invoke()
+                if not any(task[1] == "Вторая проверочная задача" for task in panel.store.list_tasks()):
+                    raise RuntimeError("Selected archived task was not restored.")
+                if len(panel.store.list_deleted_tasks()) != 1:
+                    raise RuntimeError("Restoring a selected task removed other archived tasks.")
+                archive_window.destroy()
                 panel.select_tab(1)
                 panel.note_editor.insert("1.0", "Заметка из интерфейса")
                 panel.save_note()
