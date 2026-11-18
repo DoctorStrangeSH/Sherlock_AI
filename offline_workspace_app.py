@@ -596,8 +596,8 @@ class WorkspaceWindow:
         owner = self.window.winfo_toplevel()
         overview = tk.Toplevel(owner)
         overview.title("Sherlock AI · Обзор проектов")
-        overview.geometry("790x440")
-        overview.minsize(640, 330)
+        overview.geometry("990x470")
+        overview.minsize(800, 350)
         overview.configure(bg=BG)
         overview.transient(owner)
         self.project_overview_window = overview
@@ -605,12 +605,13 @@ class WorkspaceWindow:
                  font=("Segoe UI", 17, "bold")).pack(anchor="w", padx=18, pady=(16, 3))
         tk.Label(overview, text="Только активные задачи · оценка времени не включает задачи без длительности",
                  bg=BG, fg=MUTED).pack(anchor="w", padx=18, pady=(0, 12))
-        columns = ("project", "total", "open", "done", "overdue", "today", "estimate")
+        columns = ("project", "priority", "progress", "total", "open", "done", "overdue", "today", "estimate")
         table = ttk.Treeview(overview, columns=columns, show="headings",
                              selectmode="browse", style="Sherlock.Treeview")
         self.project_overview_table = table
         for column, title, width in (
-            ("project", "Проект", 205), ("total", "Всего", 65),
+            ("project", "Проект", 185), ("priority", "Важность", 95),
+            ("progress", "Прогресс", 125), ("total", "Всего", 65),
             ("open", "Открыто", 75), ("done", "Готово", 75),
             ("overdue", "Просрочено", 105), ("today", "Сегодня", 80),
             ("estimate", "План", 110),
@@ -619,20 +620,32 @@ class WorkspaceWindow:
             table.column(column, width=width, anchor="w" if column == "project" else "center")
         table.pack(fill="both", expand=True, padx=18, pady=(0, 9))
         table.tag_configure("attention", foreground="#ffb0a5")
+        table.tag_configure("high", foreground="#f8c978")
+        table.tag_configure("finished", foreground="#98e7c9")
         summary = tk.Label(overview, text="", bg=BG, fg=MUTED)
         summary.pack(anchor="w", padx=18, pady=(0, 8))
 
         def reload_items():
             table.delete(*table.get_children())
             rows = self.store.list_project_overview()
+            priorities = {name.casefold(): priority for name, _desc, _goal, priority
+                          in self.store.list_project_details()}
+            labels = {"low": "Низкий", "normal": "Обычный", "high": "Высокий"}
             for index, (project, total, opened, done, overdue, due_today, minutes, unknown) in enumerate(rows):
                 duration = f"{minutes // 60} ч {minutes % 60} мин" if minutes else "0 мин"
                 if unknown:
                     duration += " + ?"
+                priority = priorities.get(project.casefold(), "normal")
+                percent = round(done * 100 / total) if total else 0
+                filled = min(10, round(percent / 10))
+                progress = f"{'▰' * filled}{'▱' * (10 - filled)} {percent}%"
+                tag = "attention" if overdue else "finished" if total and not opened else (
+                    "high" if priority == "high" else ""
+                )
                 table.insert("", "end", iid=str(index),
-                             values=(project or "Без проекта", total, opened, done,
-                                     overdue, due_today, duration),
-                             tags=("attention",) if overdue else ())
+                             values=(project or "Без проекта", labels[priority], progress,
+                                     total, opened, done, overdue, due_today, duration),
+                             tags=(tag,) if tag else ())
             summary.configure(text=f"Проектов: {sum(bool(row[0]) for row in rows)} · "
                                    f"Задач: {sum(row[1] for row in rows)}")
             self._project_overview_names = [row[0] for row in rows]
@@ -646,8 +659,8 @@ class WorkspaceWindow:
             )
             editor = tk.Toplevel(overview)
             editor.title("Sherlock AI · Проект")
-            editor.geometry("540x420")
-            editor.minsize(460, 370)
+            editor.geometry("540x500")
+            editor.minsize(460, 440)
             editor.configure(bg=BG)
             editor.transient(overview)
             self.project_editor_window = editor
@@ -668,6 +681,17 @@ class WorkspaceWindow:
             goal_input = tk.Text(editor, height=3, bg=INPUT, fg=FG,
                                   insertbackground=FG, relief="flat", wrap="word")
             goal_input.pack(fill="x", padx=18, pady=(3, 10))
+            tk.Label(editor, text="Приоритет проекта", bg=BG, fg=MUTED).pack(
+                anchor="w", padx=18)
+            priority_labels = {"Низкий": "low", "Обычный": "normal", "Высокий": "high"}
+            priority_values = {value: label for label, value in priority_labels.items()}
+            priority_picker = ttk.Combobox(editor, state="readonly",
+                                          values=tuple(priority_labels),
+                                          style="Sherlock.TCombobox")
+            priority_picker.pack(fill="x", padx=18, pady=(3, 10))
+            priority_picker.set(priority_values.get(
+                existing_details[3] if existing_details else "normal", "Обычный"
+            ))
             if existing_details:
                 description_input.insert("1.0", existing_details[1])
                 goal_input.insert("1.0", existing_details[2])
@@ -678,6 +702,7 @@ class WorkspaceWindow:
                         existing or name_input.get(),
                         description_input.get("1.0", "end-1c"),
                         goal_input.get("1.0", "end-1c"),
+                        priority_labels[priority_picker.get()],
                     )
                 except ValueError as exc:
                     messagebox.showerror("Ошибка проекта", str(exc), parent=editor)
