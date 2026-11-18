@@ -295,62 +295,115 @@ class SherlockDesktop:
         self.search_results.pack(fill="x", padx=24, pady=(4, 12))
 
         self.settings_page = tk.Frame(self.content_area, bg=BACKGROUND)
-        tk.Label(self.settings_page, text="Настройки помощника", bg=BACKGROUND, fg=TEXT,
-                 font=("Segoe UI", 19, "bold")).pack(anchor="w", padx=24, pady=(26, 8))
-        tk.Label(self.settings_page, text="Выбор модели и производительности действует только на этом компьютере.",
-                 bg=BACKGROUND, fg=MUTED, wraplength=480, justify="left").pack(anchor="w", padx=24, pady=(0, 22))
-        settings = tk.Frame(self.settings_page, bg=BACKGROUND, padx=24)
-        settings.pack(fill="x")
-        self.model_label = tk.Label(settings, text="Модель: проверяется…",
-                                    bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 10))
-        self.model_label.pack(side="left")
-        self.model_picker = ttk.Combobox(settings, textvariable=self.model_choice, width=16, state="readonly")
-        self.model_picker.pack(side="left", padx=(9, 0))
-        self.model_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
-        self.tone = tk.StringVar(value=self.load_tone())
+        settings_canvas = tk.Canvas(self.settings_page, bg=BACKGROUND, highlightthickness=0)
+        settings_scrollbar = ttk.Scrollbar(self.settings_page, orient="vertical",
+                                           command=settings_canvas.yview)
+        settings_canvas.configure(yscrollcommand=settings_scrollbar.set)
+        settings_scrollbar.pack(side="right", fill="y")
+        settings_canvas.pack(side="left", fill="both", expand=True)
+        settings_content = tk.Frame(settings_canvas, bg=BACKGROUND)
+        settings_window = settings_canvas.create_window((0, 0), window=settings_content, anchor="nw")
+        settings_content.bind("<Configure>", lambda _event: settings_canvas.configure(
+            scrollregion=settings_canvas.bbox("all")))
+        settings_canvas.bind("<Configure>", lambda event: settings_canvas.itemconfigure(
+            settings_window, width=event.width))
+
+        tk.Label(settings_content, text="Настройки", bg=BACKGROUND, fg=TEXT,
+                 font=("Segoe UI", 21, "bold")).pack(anchor="w", padx=24, pady=(22, 5))
+        tk.Label(settings_content, text="Настрой Sherlock AI под свой компьютер и привычки.",
+                 bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 10)).pack(
+                     anchor="w", padx=24, pady=(0, 14))
+
+        def settings_card(title, subtitle):
+            card = tk.Frame(settings_content, bg=SURFACE, padx=18, pady=15)
+            card.pack(fill="x", padx=24, pady=(0, 12))
+            tk.Label(card, text=title, bg=SURFACE, fg=TEXT,
+                     font=("Segoe UI", 12, "bold")).pack(anchor="w")
+            tk.Label(card, text=subtitle, bg=SURFACE, fg=MUTED,
+                     font=("Segoe UI", 9), justify="left", wraplength=590).pack(
+                         anchor="w", pady=(3, 12))
+            return card
+
         style = ttk.Style(root)
         style.theme_use("clam")
         style.configure("Sherlock.TCombobox", fieldbackground=INPUT, background=INPUT,
-                        foreground=TEXT, arrowcolor=TEXT)
+                        foreground=TEXT, arrowcolor=TEXT, borderwidth=0,
+                        padding=(8, 6), font=("Segoe UI", 10))
         style.map("Sherlock.TCombobox", fieldbackground=[("readonly", INPUT)],
                   foreground=[("readonly", TEXT)], selectbackground=[("readonly", INPUT)],
                   selectforeground=[("readonly", TEXT)])
 
-        performance_bar = tk.Frame(self.settings_page, bg=BACKGROUND, padx=24)
-        performance_bar.pack(fill="x", pady=(9, 0))
-        tk.Label(performance_bar, text="Скорость:", bg=BACKGROUND, fg=MUTED).pack(side="left")
-        self.performance_picker = ttk.Combobox(performance_bar, textvariable=self.performance,
-                                                values=["Быстро", "Баланс", "Качество"],
-                                                width=12, state="readonly", style="Sherlock.TCombobox")
-        self.performance_picker.pack(side="left", padx=(8, 12))
-        self.performance_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
-        tk.Label(performance_bar, text="Стиль:", bg=BACKGROUND, fg=MUTED).pack(side="left")
-        picker = ttk.Combobox(performance_bar, textvariable=self.tone, state="readonly",
-                              values=list(TONES), width=11, style="Sherlock.TCombobox")
-        picker.pack(side="left", padx=(8, 0))
-        picker.bind("<<ComboboxSelected>>", self.save_model_choice)
-        tk.Label(self.settings_page,
-                 text="Быстро: краткие ответы · Баланс: повседневная работа · Качество: больше контекста",
-                 bg=BACKGROUND, fg=MUTED, wraplength=480, justify="left").pack(anchor="w", padx=24, pady=(22, 0))
+        model_card = settings_card(
+            "◈ Локальная модель",
+            "Ответы создаются на твоём компьютере через Ollama. Telegram для общения не нужен.")
+        self.model_label = tk.Label(model_card, text="Модель: проверяется…",
+                                    bg=SURFACE, fg="#a9f6ce", font=("Segoe UI", 10))
+        self.model_label.pack(anchor="w", pady=(0, 8))
+        self.model_picker = ttk.Combobox(
+            model_card, textvariable=self.model_choice, width=26,
+            state="readonly", style="Sherlock.TCombobox")
+        self.model_picker.pack(anchor="w")
+        self.model_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
 
-        reminders_row = tk.Frame(self.settings_page, bg=BACKGROUND, padx=24)
-        reminders_row.pack(fill="x", pady=(20, 0))
-        tk.Checkbutton(reminders_row, text="Напоминания о сроках задач", variable=self.reminders_enabled,
-                       command=self.save_model_choice, bg=BACKGROUND, fg=TEXT,
-                       selectcolor=INPUT, activebackground=BACKGROUND,
-                       activeforeground=TEXT).pack(anchor="w")
-        reminder_time_row = tk.Frame(self.settings_page, bg=BACKGROUND, padx=24)
-        reminder_time_row.pack(fill="x", pady=(8, 0))
-        tk.Label(reminder_time_row, text="Показывать после:", bg=BACKGROUND, fg=MUTED).pack(side="left")
+        behavior_card = settings_card(
+            "⚡ Поведение и производительность",
+            "Выбери, насколько подробными будут ответы, и как Шерлок будет общаться.")
+        self.tone = tk.StringVar(value=self.load_tone())
+        behavior_fields = tk.Frame(behavior_card, bg=SURFACE)
+        behavior_fields.pack(fill="x")
+        performance_column = tk.Frame(behavior_fields, bg=SURFACE)
+        performance_column.pack(side="left", padx=(0, 20))
+        tk.Label(performance_column, text="Режим ответа", bg=SURFACE, fg=MUTED).pack(anchor="w")
+        self.performance_picker = ttk.Combobox(
+            performance_column, textvariable=self.performance,
+            values=["Быстро", "Баланс", "Качество"], width=16,
+            state="readonly", style="Sherlock.TCombobox")
+        self.performance_picker.pack(anchor="w", pady=(6, 0))
+        self.performance_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
+        tone_column = tk.Frame(behavior_fields, bg=SURFACE)
+        tone_column.pack(side="left")
+        tk.Label(tone_column, text="Характер общения", bg=SURFACE, fg=MUTED).pack(anchor="w")
+        picker = ttk.Combobox(
+            tone_column, textvariable=self.tone, state="readonly",
+            values=list(TONES), width=17, style="Sherlock.TCombobox")
+        picker.pack(anchor="w", pady=(6, 0))
+        picker.bind("<<ComboboxSelected>>", self.save_model_choice)
+        tk.Label(behavior_card,
+                 text="Быстро — коротко · Баланс — на каждый день · Качество — больше контекста",
+                 bg=SURFACE, fg=MUTED, justify="left", wraplength=590,
+                 font=("Segoe UI", 9)).pack(anchor="w", pady=(12, 0))
+
+        reminder_card = settings_card(
+            "◷ Напоминания",
+            "Шерлок напомнит о сроках задач, пока приложение открыто.")
+        tk.Checkbutton(reminder_card, text="Включить напоминания о задачах",
+                       variable=self.reminders_enabled, command=self.save_model_choice,
+                       bg=SURFACE, fg=TEXT, selectcolor=INPUT,
+                       activebackground=SURFACE, activeforeground=TEXT,
+                       font=("Segoe UI", 10)).pack(anchor="w")
+        reminder_time_row = tk.Frame(reminder_card, bg=SURFACE)
+        reminder_time_row.pack(anchor="w", pady=(10, 0))
+        tk.Label(reminder_time_row, text="Показывать после", bg=SURFACE, fg=MUTED).pack(
+            side="left", padx=(0, 10))
         self.reminder_time_picker = ttk.Combobox(
-            reminder_time_row, textvariable=self.reminder_time, width=8,
+            reminder_time_row, textvariable=self.reminder_time, width=10,
             values=["08:00", "09:00", "10:00", "12:00", "15:00", "18:00", "20:00"],
             state="readonly", style="Sherlock.TCombobox")
-        self.reminder_time_picker.pack(side="left", padx=(8, 0))
+        self.reminder_time_picker.pack(side="left")
         self.reminder_time_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
-        tk.Label(self.settings_page,
-                 text="Только в открытом приложении · проверка раз в минуту · без системных уведомлений.",
-                 bg=BACKGROUND, fg=MUTED, wraplength=480, justify="left").pack(anchor="w", padx=24, pady=(3, 0))
+        tk.Label(reminder_card,
+                 text="Проверка раз в минуту. Без фоновой службы и системных уведомлений.",
+                 bg=SURFACE, fg=MUTED, wraplength=590, justify="left",
+                 font=("Segoe UI", 9)).pack(anchor="w", pady=(11, 0))
+
+        privacy_card = settings_card(
+            "⌑ Приватность",
+            "Задачи, заметки, память и сохранённые диалоги находятся в локальной базе SQLite.")
+        tk.Label(privacy_card,
+                 text="Ничего не отправляется в облако автоматически. "
+                      "Анализ файлов запускается только по твоему выбору.",
+                 bg=SURFACE, fg="#a9f6ce", justify="left", wraplength=590,
+                 font=("Segoe UI", 9)).pack(anchor="w")
 
         self.chat = ScrolledText(self.chat_page, height=8, wrap="word", bg=SURFACE, fg=TEXT,
                                  insertbackground=TEXT, font=("Segoe UI", 11),
