@@ -1895,12 +1895,25 @@ def run_gui_self_test() -> int:
                 if "● Высокий" not in values or "Сегодня" not in values:
                     raise RuntimeError("Task priority or due date styling was not shown.")
                 panel.tasks.selection_set(str(task_id))
-                panel.complete_task_shortcut()
+                panel.toggle_task_shortcut()
                 finished = next(row for row in panel.store.list_tasks() if row[0] == task_id)
                 if finished[2] != 1 or panel.tasks.exists(str(task_id)):
                     raise RuntimeError("Quick completion did not update or hide the task.")
                 if panel.status.cget("text") != "Задача отмечена выполненной.":
                     raise RuntimeError("Quick completion feedback was not displayed.")
+                panel.task_filter.set("Выполненные")
+                panel.refresh()
+                panel.tasks.selection_set(str(task_id))
+                panel.toggle_task_shortcut()
+                reopened = next(row for row in panel.store.list_tasks() if row[0] == task_id)
+                if reopened[2] != 0 or panel.tasks.exists(str(task_id)):
+                    raise RuntimeError("Quick restore did not reopen the completed task.")
+                if panel.status.cget("text") != "Задача возвращена в работу.":
+                    raise RuntimeError("Quick restore feedback was not displayed.")
+                panel.task_filter.set("Открытые")
+                panel.refresh()
+                if not panel.tasks.exists(str(task_id)):
+                    raise RuntimeError("Restored task is missing from open tasks.")
                 panel.select_tab(1)
                 panel.note_editor.insert("1.0", "Заметка из интерфейса")
                 panel.save_note()
