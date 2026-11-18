@@ -1844,6 +1844,24 @@ def run_gui_self_test() -> int:
                 if panel.quick_task_title.get() or len(panel.tasks.get_children()) != 1:
                     raise RuntimeError("Quick task creation failed in Tk.")
                 task_id = int(panel.tasks.get_children()[0])
+                other_id = panel.store.add_task("Вторая проверочная задача")
+                panel.refresh()
+                panel.task_search.set("ИНТЕРФЕЙСА")
+                if tuple(panel.tasks.get_children()) != (str(task_id),):
+                    raise RuntimeError("Task search did not filter case-insensitively.")
+                panel.task_filter.set("Выполненные")
+                panel.refresh()
+                if panel.tasks.get_children():
+                    raise RuntimeError("Task search ignored the status filter.")
+                panel.task_filter.set("Все")
+                panel.task_search.set("Несуществующий текст")
+                if panel.tasks.get_children() or "По запросу" not in panel.tasks_hint.cget("text"):
+                    raise RuntimeError("Task search empty state did not appear.")
+                panel.task_search.set("")
+                if len(panel.tasks.get_children()) != 2:
+                    raise RuntimeError("Clearing task search did not restore all tasks.")
+                panel.task_filter.set("Открытые")
+                panel.refresh()
                 panel.select_tab(1)
                 panel.note_editor.insert("1.0", "Заметка из интерфейса")
                 panel.save_note()
