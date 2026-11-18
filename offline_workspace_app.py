@@ -79,7 +79,8 @@ class WorkspaceWindow:
                                          ("Вернуть", self.restore_task),
                                          ("Удалить", self.delete_task),
                                          ("Отменить удаление", self.undo_delete_task),
-                                         ("Архив задач", self.open_task_archive)))
+                                         ("Архив задач", self.open_task_archive),
+                                         ("Обзор проектов", self.open_project_overview)))
         quick_task = tk.Frame(self.task_frame, bg=BG)
         quick_task.pack(fill="x", padx=10, pady=(0, 8))
         self.quick_task_title = tk.Entry(
@@ -589,6 +590,77 @@ class WorkspaceWindow:
         self.tasks.selection_set(str(task_id))
         self.tasks.see(str(task_id))
         self.status.configure(text="Удалённая задача восстановлена.")
+
+    def open_project_overview(self):
+        """Show a local project dashboard with direct navigation to its tasks."""
+        owner = self.window.winfo_toplevel()
+        overview = tk.Toplevel(owner)
+        overview.title("Sherlock AI · Обзор проектов")
+        overview.geometry("790x440")
+        overview.minsize(640, 330)
+        overview.configure(bg=BG)
+        overview.transient(owner)
+        self.project_overview_window = overview
+        tk.Label(overview, text="Обзор проектов", bg=BG, fg=FG,
+                 font=("Segoe UI", 17, "bold")).pack(anchor="w", padx=18, pady=(16, 3))
+        tk.Label(overview, text="Только активные задачи · оценка времени не включает задачи без длительности",
+                 bg=BG, fg=MUTED).pack(anchor="w", padx=18, pady=(0, 12))
+        columns = ("project", "total", "open", "done", "overdue", "today", "estimate")
+        table = ttk.Treeview(overview, columns=columns, show="headings",
+                             selectmode="browse", style="Sherlock.Treeview")
+        self.project_overview_table = table
+        for column, title, width in (
+            ("project", "Проект", 205), ("total", "Всего", 65),
+            ("open", "Открыто", 75), ("done", "Готово", 75),
+            ("overdue", "Просрочено", 105), ("today", "Сегодня", 80),
+            ("estimate", "План", 110),
+        ):
+            table.heading(column, text=title)
+            table.column(column, width=width, anchor="w" if column == "project" else "center")
+        table.pack(fill="both", expand=True, padx=18, pady=(0, 9))
+        table.tag_configure("attention", foreground="#ffb0a5")
+        summary = tk.Label(overview, text="", bg=BG, fg=MUTED)
+        summary.pack(anchor="w", padx=18, pady=(0, 8))
+
+        def reload_items():
+            table.delete(*table.get_children())
+            rows = self.store.list_project_overview()
+            for index, (project, total, opened, done, overdue, due_today, minutes, unknown) in enumerate(rows):
+                duration = f"{minutes // 60} ч {minutes % 60} мин" if minutes else "0 мин"
+                if unknown:
+                    duration += " + ?"
+                table.insert("", "end", iid=str(index),
+                             values=(project or "Без проекта", total, opened, done,
+                                     overdue, due_today, duration),
+                             tags=("attention",) if overdue else ())
+            summary.configure(text=f"Проектов: {sum(bool(row[0]) for row in rows)} · "
+                                   f"Задач: {sum(row[1] for row in rows)}")
+            self._project_overview_names = [row[0] for row in rows]
+
+        def open_selected(_event=None):
+            selection = table.selection()
+            if not selection:
+                return
+            name = self._project_overview_names[int(selection[0])]
+            self.project_filter.set(name or "Без проекта")
+            self.task_filter.set("Все")
+            self.task_search.set("")
+            self.refresh()
+            self.select_tab(0)
+            overview.destroy()
+            self.status.configure(text=f"Открыты задачи проекта: {name or 'Без проекта'}.")
+
+        reload_items()
+        controls = tk.Frame(overview, bg=BG)
+        controls.pack(fill="x", padx=18, pady=(0, 14))
+        tk.Button(controls, text="Открыть задачи проекта", command=open_selected,
+                  bg=ACCENT, fg=BG, relief="flat", padx=14, pady=8).pack(side="left")
+        tk.Button(controls, text="Обновить", command=reload_items,
+                  bg=PANEL, fg=FG, relief="flat", padx=12, pady=8).pack(side="left", padx=8)
+        tk.Button(controls, text="Закрыть", command=overview.destroy,
+                  bg=PANEL, fg=FG, relief="flat", padx=12, pady=8).pack(side="right")
+        table.bind("<Double-1>", open_selected)
+        overview.bind("<Escape>", lambda _event: overview.destroy())
 
     def open_task_archive(self):
         """Browse and restore any deleted task without permanent deletion."""
