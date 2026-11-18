@@ -78,7 +78,8 @@ class WorkspaceWindow:
                                          ("Выполнено", self.complete_task),
                                          ("Вернуть", self.restore_task),
                                          ("Удалить", self.delete_task),
-                                         ("Отменить удаление", self.undo_delete_task)))
+                                         ("Отменить удаление", self.undo_delete_task),
+                                         ("Архив задач", self.open_task_archive)))
         quick_task = tk.Frame(self.task_frame, bg=BG)
         quick_task.pack(fill="x", padx=10, pady=(0, 8))
         self.quick_task_title = tk.Entry(
@@ -564,6 +565,77 @@ class WorkspaceWindow:
         self.tasks.selection_set(str(task_id))
         self.tasks.see(str(task_id))
         self.status.configure(text="Удалённая задача восстановлена.")
+
+    def open_task_archive(self):
+        """Browse and restore any deleted task without permanent deletion."""
+        owner = self.window.winfo_toplevel()
+        archive = tk.Toplevel(owner)
+        archive.title("Sherlock AI · Архив задач")
+        archive.geometry("700x430")
+        archive.minsize(550, 340)
+        archive.configure(bg=BG)
+        archive.transient(owner)
+        self.archive_window = archive
+        tk.Label(archive, text="Архив удалённых задач", bg=BG, fg=FG,
+                 font=("Segoe UI", 17, "bold")).pack(anchor="w", padx=18, pady=(16, 3))
+        tk.Label(archive, text="Задачи хранятся локально. Выбери запись для восстановления.",
+                 bg=BG, fg=MUTED).pack(anchor="w", padx=18, pady=(0, 8))
+        query = tk.StringVar(archive)
+        self.archive_query = query
+        search = tk.Entry(archive, textvariable=query, bg=INPUT, fg=FG,
+                          insertbackground=FG, relief="flat")
+        search.pack(fill="x", padx=18, ipady=7, pady=(0, 8))
+        table = ttk.Treeview(archive, columns=("title", "priority", "deleted"),
+                             show="headings", selectmode="browse",
+                             style="Sherlock.Treeview")
+        self.archive_table = table
+        for column, label, width in (
+            ("title", "Задача", 350),
+            ("priority", "Приоритет", 100),
+            ("deleted", "Удалена", 145),
+        ):
+            table.heading(column, text=label)
+            table.column(column, width=width, anchor="w")
+        table.pack(fill="both", expand=True, padx=18, pady=(0, 8))
+        priority_labels = {"low": "Низкий", "normal": "Обычный", "high": "Высокий"}
+
+        def reload_items(*_args):
+            table.delete(*table.get_children())
+            needle = query.get().strip().casefold()
+            for archive_id, title, _done, priority, _due, _minutes, deleted_at in self.store.list_deleted_tasks():
+                if needle in title.casefold():
+                    table.insert("", "end", iid=str(archive_id),
+                                 values=(title, priority_labels.get(priority, "Обычный"), deleted_at))
+        query.trace_add("write", reload_items)
+        reload_items()
+
+        def restore_selected(_event=None):
+            selected = table.selection()
+            if not selected:
+                self.status.configure(text="Выбери задачу в архиве.")
+                return
+            task_id = self.store.restore_deleted_task(int(selected[0]))
+            if task_id is None:
+                reload_items()
+                self.status.configure(text="Запись уже отсутствует в архиве.")
+                return
+            self.task_filter.set("Все")
+            self.task_search.set("")
+            self.refresh()
+            self.tasks.selection_set(str(task_id))
+            self.tasks.see(str(task_id))
+            reload_items()
+            self.status.configure(text="Задача восстановлена из архива.")
+
+        controls = tk.Frame(archive, bg=BG)
+        controls.pack(fill="x", padx=18, pady=(0, 14))
+        tk.Button(controls, text="Восстановить выбранную", command=restore_selected,
+                  bg=ACCENT, fg=BG, relief="flat", padx=14, pady=8).pack(side="left")
+        tk.Button(controls, text="Закрыть", command=archive.destroy,
+                  bg=PANEL, fg=FG, relief="flat", padx=12, pady=8).pack(side="right")
+        table.bind("<Double-1>", restore_selected)
+        archive.bind("<Escape>", lambda _event: archive.destroy())
+        search.focus_set()
 
     @staticmethod
     def editor_shortcut(callback):
