@@ -1814,6 +1814,36 @@ def run_self_test() -> int:
     return 0
 
 
+def run_gui_self_test() -> int:
+    """Exercise real Tk widgets with only temporary local data."""
+    from tempfile import TemporaryDirectory
+    from unittest.mock import patch
+
+    with TemporaryDirectory(prefix="sherlock-gui-") as folder:
+        with patch.dict(os.environ, {"LOCALAPPDATA": folder}), (
+            patch(__name__ + ".selected_model", return_value="test-model")
+        ), patch(__name__ + ".installed_models", return_value=["test-model"]):
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                app = SherlockDesktop(root)
+                for page in ("chat", "day", "tasks", "notes", "memory", "history", "settings"):
+                    app.show_page(page)
+                    root.update_idletasks()
+                app.update_navigation_layout(800)
+                if int(app.navigation.cget("width")) != 56:
+                    raise RuntimeError("Compact navigation did not activate.")
+                app.update_navigation_layout(1200)
+                if int(app.navigation.cget("width")) != 164:
+                    raise RuntimeError("Expanded navigation did not activate.")
+                app.show_page("chat")
+                app.close()
+            finally:
+                if root.winfo_exists():
+                    root.destroy()
+    return 0
+
+
 def main() -> None:
     root = tk.Tk()
     SherlockDesktop(root)
@@ -1824,4 +1854,6 @@ if __name__ == "__main__":
     import sys
     if sys.argv[1:] == ["--self-test"]:
         raise SystemExit(run_self_test())
+    if sys.argv[1:] == ["--gui-self-test"]:
+        raise SystemExit(run_gui_self_test())
     main()
