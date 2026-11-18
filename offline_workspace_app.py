@@ -131,12 +131,19 @@ class WorkspaceWindow:
         self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
         self.note_search.trace_add("write", lambda *_args: self.refresh())
         self.memory_search.trace_add("write", lambda *_args: self.refresh())
+        self.history_search = self._search_bar(self.history_frame, "Поиск по названию…")
+        self.history_empty = tk.Label(
+            self.history_frame, text="Сохранённых разговоров пока нет.",
+            bg=PANEL, fg=MUTED, anchor="w", padx=14, pady=10,
+        )
         self.conversations = self._table(self.history_frame, ("Название", "Дата"), (450, 160))
+        self.history_search.trace_add("write", lambda *_args: self.refresh())
         self._controls(self.note_frame, (("Новая", self.add_note),
                                          ("Изменить", self.edit_note),
                                          ("Сохранить", self.save_note),
                                          ("Удалить", self.delete_note)))
         self.editing_note_id = None
+        self.note_baseline = ""
         self.note_hint = tk.Label(self.note_frame, text="Новая заметка · до 1000 символов",
                                   bg=BG, fg=MUTED, anchor="w")
         self.note_hint.pack(fill="x", padx=18, pady=(0, 5))
@@ -150,6 +157,7 @@ class WorkspaceWindow:
                                           ("Сохранить", self.save_memory),
                                           ("Удалить", self.delete_memory)))
         self.editing_memory_id = None
+        self.memory_baseline = ""
         self.memory_hint = tk.Label(self.memory_frame,
                                     text="Память сохраняется только по твоему решению · до 500 символов",
                                     bg=BG, fg=MUTED, anchor="w")
@@ -285,10 +293,29 @@ class WorkspaceWindow:
             self.memories.insert("", "end", iid=str(memory_id), values=(content,))
         if selected_memory is not None and self.memories.exists(str(selected_memory)):
             self.memories.selection_set(str(selected_memory))
+        selected_conversation = self._selected(self.conversations)
         self.conversations.delete(*self.conversations.get_children())
         conversations = self.store.list_conversations()
-        for conversation_id, title, created_at in conversations:
-            self.conversations.insert("", "end", iid=str(conversation_id), values=(title, created_at))
+        history_query = self.history_search.get().strip().casefold()
+        visible_conversations = [
+            (conversation_id, title, created_at)
+            for conversation_id, title, created_at in conversations
+            if history_query in title.casefold()
+        ]
+        self.history_empty.configure(
+            text="Сохранённых разговоров пока нет." if not conversations
+            else "По этому запросу разговоров не найдено.",
+        )
+        if visible_conversations:
+            self.history_empty.pack_forget()
+        else:
+            self.history_empty.pack(fill="x", padx=10, pady=(7, 0),
+                                    before=self.conversations)
+        for conversation_id, title, created_at in visible_conversations:
+            self.conversations.insert("", "end", iid=str(conversation_id),
+                                      values=(title, created_at))
+        if selected_conversation is not None and self.conversations.exists(str(selected_conversation)):
+            self.conversations.selection_set(str(selected_conversation))
         open_count = sum(not done for _, _, done in tasks)
         overdue_count = sum(task_bucket(task) == "overdue" for task in detailed_tasks)
         today_count = sum(task_bucket(task) == "today" for task in detailed_tasks)
@@ -458,8 +485,24 @@ class WorkspaceWindow:
             self.store.delete_task(task_id)
             self.refresh()
 
+    def confirm_editor_discard(self, kind):
+        """Keep local drafts unless the user explicitly discards them."""
+        editor = self.note_editor if kind == "note" else self.memory_editor
+        baseline = self.note_baseline if kind == "note" else self.memory_baseline
+        current = editor.get("1.0", "end-1c")
+        if current == baseline:
+            return True
+        return messagebox.askyesno(
+            "Несохранённые изменения",
+            "Текст ещё не сохранён. Отменить изменения и продолжить?",
+            parent=self.window.winfo_toplevel(),
+        )
+
     def add_note(self):
+        if not self.confirm_editor_discard("note"):
+            return
         self.editing_note_id = None
+        self.note_baseline = ""
         self.note_editor.delete("1.0", "end")
         self.note_hint.configure(text="Новая заметка · до 1000 символов")
         self.note_editor.focus_set()
@@ -469,8 +512,11 @@ class WorkspaceWindow:
         if note_id is None:
             self.status.configure(text="Выбери заметку для редактирования.")
             return
+        if not self.confirm_editor_discard("note"):
+            return
         values = self.notes.item(str(note_id), "values")
         self.editing_note_id = note_id
+        self.note_baseline = values[0] if values else ""
         self.note_editor.delete("1.0", "end")
         self.note_editor.insert("1.0", values[0] if values else "")
         self.note_hint.configure(text=f"Редактирование заметки №{note_id}")
@@ -484,6 +530,7 @@ class WorkspaceWindow:
             elif not self.store.update_note(self.editing_note_id, content):
                 self.status.configure(text="Заметка уже удалена. Обнови список.")
                 return
+            self.note_baseline = content
             self.add_note()
             self.refresh()
         except ValueError as exc:
@@ -494,11 +541,15 @@ class WorkspaceWindow:
         if note_id is not None and messagebox.askyesno("Удалить заметку?", "Удалить выбранную заметку?", parent=self.window):
             self.store.delete_note(note_id)
             if self.editing_note_id == note_id:
+                self.note_baseline = self.note_editor.get("1.0", "end-1c")
                 self.add_note()
             self.refresh()
 
     def new_memory(self):
+        if not self.confirm_editor_discard("memory"):
+            return
         self.editing_memory_id = None
+        self.memory_baseline = ""
         self.memory_editor.delete("1.0", "end")
         self.memory_hint.configure(text="Новый факт · сохраняется только после нажатия «Сохранить»")
         self.memory_editor.focus_set()
@@ -508,8 +559,11 @@ class WorkspaceWindow:
         if memory_id is None:
             self.status.configure(text="Выбери факт памяти.")
             return
+        if not self.confirm_editor_discard("memory"):
+            return
         values = self.memories.item(str(memory_id), "values")
         self.editing_memory_id = memory_id
+        self.memory_baseline = values[0] if values else ""
         self.memory_editor.delete("1.0", "end")
         self.memory_editor.insert("1.0", values[0] if values else "")
         self.memory_hint.configure(text=f"Редактирование факта №{memory_id}")
@@ -523,6 +577,7 @@ class WorkspaceWindow:
             elif not self.store.update_memory(self.editing_memory_id, content):
                 self.status.configure(text="Факт уже удалён.")
                 return
+            self.memory_baseline = content
             self.new_memory()
             self.refresh()
         except ValueError as exc:
@@ -535,6 +590,7 @@ class WorkspaceWindow:
                 parent=self.window):
             self.store.delete_memory(memory_id)
             if self.editing_memory_id == memory_id:
+                self.memory_baseline = self.memory_editor.get("1.0", "end-1c")
                 self.new_memory()
             self.refresh()
 
@@ -559,9 +615,14 @@ class WorkspaceWindow:
         self.refresh()
 
     def close(self):
+        if not self.confirm_editor_discard("note"):
+            return False
+        if not self.confirm_editor_discard("memory"):
+            return False
         self.store.close()
         if not self.embedded:
             self.window.destroy()
+        return True
 
 
 def open_workspace(parent, initial_tab=0):
