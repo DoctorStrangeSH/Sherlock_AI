@@ -105,6 +105,13 @@ class WorkspaceWindow:
         )
         self.task_filter_picker.pack(side="left")
         self.task_filter_picker.bind("<<ComboboxSelected>>", lambda _event: self.refresh())
+        self.project_filter = tk.StringVar(value="Все проекты")
+        self.project_filter_picker = ttk.Combobox(
+            filters, textvariable=self.project_filter, state="readonly",
+            values=("Все проекты", "Без проекта"), width=17, style="Sherlock.TCombobox",
+        )
+        self.project_filter_picker.pack(side="left", padx=(10, 0))
+        self.project_filter_picker.bind("<<ComboboxSelected>>", lambda _event: self.refresh())
         self.task_search = self._search_bar(self.task_frame, "Поиск по названию задачи…")
         self.task_search.trace_add("write", lambda *_args: self.refresh())
         self.task_count_label = tk.Label(filters, text="", bg=BG, fg=MUTED,
@@ -254,6 +261,13 @@ class WorkspaceWindow:
         tasks = self.store.list_tasks()
         priority_labels = {"low": "Низкий", "normal": "Обычный", "high": "Высокий"}
         detailed_tasks = self.store.list_task_estimates()
+        projects = self.store.list_task_projects()
+        project_names = self.store.list_project_names()
+        choices = ("Все проекты", "Без проекта", *project_names)
+        self.project_filter_picker.configure(values=choices)
+        if self.project_filter.get() not in choices:
+            self.project_filter.set("Все проекты")
+        selected_project = self.project_filter.get()
         states = {"done": "✓ Готово", "overdue": "⚠ Просрочено",
                   "today": "◉ Сегодня", "upcoming": "○ В работе",
                   "unscheduled": "○ В работе"}
@@ -268,7 +282,11 @@ class WorkspaceWindow:
         task_query = self.task_search.get().strip().casefold()
         visible_tasks = [
             task for task in detailed_tasks
-            if task_bucket(task) in buckets and task_query in task[1].casefold()
+            if task_bucket(task) in buckets
+            and task_query in (task[1] + " " + projects.get(task[0], "")).casefold()
+            and (selected_project == "Все проекты"
+                 or (selected_project == "Без проекта" and not projects.get(task[0], ""))
+                 or projects.get(task[0], "") == selected_project)
         ]
         visible_tasks.sort(key=lambda task: (
             {"overdue": 0, "today": 1, "upcoming": 2, "unscheduled": 3, "done": 4}[task_bucket(task)],
@@ -293,8 +311,10 @@ class WorkspaceWindow:
             priority_text = ("● " if priority == "high" else "") + priority_labels.get(priority, "Обычный")
             due_text = ("Сегодня" if bucket == "today" else
                         "⚠ " + due_date if bucket == "overdue" else due_date or "—")
+            project = projects.get(task_id, "")
+            display_title = f"[{project}] {title}" if project else title
             self.tasks.insert("", "end", iid=str(task_id), tags=tags,
-                              values=(states[bucket], title,
+                              values=(states[bucket], display_title,
                                       priority_text, due_text,
                                       f"{minutes} мин." if minutes else "—"))
         if selected is not None and self.tasks.exists(str(selected)):
@@ -411,7 +431,7 @@ class WorkspaceWindow:
         editor = tk.Toplevel(owner)
         editor.title("Новая задача" if task is None else f"Задача №{task_id}")
         editor.configure(bg=BG)
-        editor.geometry("440x440")
+        editor.geometry("460x490")
         editor.resizable(False, False)
         editor.transient(owner)
         content = tk.Frame(editor, bg=BG, padx=22, pady=18)
@@ -427,11 +447,15 @@ class WorkspaceWindow:
         priority_var = tk.StringVar(value=priority_labels.get(task[3], "Обычный") if task else "Обычный")
         due_var = tk.StringVar(value=(task[4] or "") if task else "")
         minutes_var = tk.StringVar(value=str(task[5]) if task and task[5] else "")
+        project_var = tk.StringVar(value=self.store.list_task_projects().get(task_id, "") if task else "")
 
         tk.Label(content, text="Название задачи", bg=BG, fg=FG).pack(anchor="w")
         title_input = tk.Entry(content, textvariable=title_var, bg=INPUT, fg=FG,
                                insertbackground=FG, relief="flat", font=("Segoe UI", 11))
-        title_input.pack(fill="x", ipady=7, pady=(4, 11))
+        title_input.pack(fill="x", ipady=7, pady=(4, 9))
+        tk.Label(content, text="Проект (необязательно)", bg=BG, fg=FG).pack(anchor="w")
+        tk.Entry(content, textvariable=project_var, bg=INPUT, fg=FG,
+                 insertbackground=FG, relief="flat").pack(fill="x", ipady=6, pady=(4, 11))
 
         details = tk.Frame(content, bg=BG)
         details.pack(fill="x", pady=(0, 11))
@@ -468,9 +492,9 @@ class WorkspaceWindow:
                 minutes = int(minutes_text) if minutes_text else None
                 priority = {"Низкий": "low", "Обычный": "normal", "Высокий": "high"}[priority_var.get()]
                 if task is None:
-                    self.store.add_task_full(title_var.get(), priority, due_var.get().strip(), minutes)
+                    self.store.add_task_full(title_var.get(), priority, due_var.get().strip(), minutes, project_var.get())
                 elif not self.store.save_task_fields(
-                    task_id, title_var.get(), priority, due_var.get().strip(), minutes,
+                    task_id, title_var.get(), priority, due_var.get().strip(), minutes, project_var.get(),
                 ):
                     messagebox.showwarning(
                         "Задача не найдена", "Задача удалена. Обнови список.", parent=editor,
