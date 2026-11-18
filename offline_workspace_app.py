@@ -1,5 +1,6 @@
 """Simple offline tasks/notes window shared by standalone and desktop launch."""
 import tkinter as tk
+from datetime import date, timedelta
 from tkinter import messagebox, simpledialog, ttk
 
 from offline_workspace import OfflineWorkspace
@@ -72,7 +73,7 @@ class WorkspaceWindow:
         tabs.add(self.history_frame, text="История")
         tabs.select(initial_tab if initial_tab in (0, 1, 2, 3) else 0)
         self._controls(self.task_frame, (("Добавить задачу", self.add_task),
-                                         ("Изменить срок/приоритет", self.edit_task_details),
+                                         ("Изменить задачу", self.edit_task_details),
                                          ("Длительность", self.edit_task_estimate),
                                          ("Выполнено", self.complete_task),
                                          ("Удалить", self.delete_task)))
@@ -114,6 +115,7 @@ class WorkspaceWindow:
         self.tasks.tag_configure("overdue", foreground="#ffb0a5")
         self.tasks.tag_configure("today", foreground="#ffd38a")
         self.tasks.tag_configure("done", foreground="#98e7c9")
+        self.tasks.bind("<Double-1>", lambda _event: self.edit_task_details())
         self.notes = self._table(self.note_frame, ("Заметка",), (650,))
         self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
         self.conversations = self._table(self.history_frame, ("Название", "Дата"), (450, 160))
@@ -241,9 +243,7 @@ class WorkspaceWindow:
         return int(ids[0]) if ids else None
 
     def add_task(self):
-        title = simpledialog.askstring("Новая задача", "Что нужно сделать?", parent=self.window)
-        if title is not None:
-            self.create_task(title)
+        self.open_task_editor()
 
     def add_quick_task(self, event=None):
         title = self.quick_task_title.get()
@@ -267,30 +267,105 @@ class WorkspaceWindow:
         if task_id is None:
             self.status.configure(text="Сначала выбери задачу.")
             return
-        details = next((task for task in self.store.list_task_details() if task[0] == task_id), None)
-        if details is None:
-            return
-        current = {"low": "низкий", "normal": "обычный", "high": "высокий"}.get(details[3], "обычный")
-        priority_text = simpledialog.askstring(
-            "Приоритет задачи", "Выбери: низкий / обычный / высокий", initialvalue=current,
-            parent=self.window)
-        if priority_text is None:
-            return
-        priorities = {"низкий": "low", "обычный": "normal", "высокий": "high"}
-        priority = priorities.get(priority_text.strip().lower())
-        if priority is None:
-            messagebox.showwarning("Приоритет", "Введи: низкий, обычный или высокий.", parent=self.window)
-            return
-        due = simpledialog.askstring(
-            "Срок задачи", "Дата ГГГГ-ММ-ДД или пусто (без срока)",
-            initialvalue=details[4] or "", parent=self.window)
-        if due is None:
-            return
-        try:
-            self.store.update_task_details(task_id, priority, due.strip() or None)
+        self.open_task_editor(task_id)
+
+    def open_task_editor(self, task_id=None):
+        """Single editor for title, priority, deadline and estimated minutes."""
+        task = None
+        if task_id is not None:
+            task = next(
+                (item for item in self.store.list_task_estimates() if item[0] == task_id),
+                None,
+            )
+            if task is None:
+                self.status.configure(text="Задача больше не найдена. Обнови список.")
+                return
+        owner = self.window.winfo_toplevel()
+        editor = tk.Toplevel(owner)
+        editor.title("Новая задача" if task is None else f"Задача №{task_id}")
+        editor.configure(bg=BG)
+        editor.geometry("440x415")
+        editor.resizable(False, False)
+        editor.transient(owner)
+        content = tk.Frame(editor, bg=BG, padx=22, pady=18)
+        content.pack(fill="both", expand=True)
+
+        tk.Label(content, text="Новая задача" if task is None else "Редактирование задачи",
+                 bg=BG, fg=FG, font=("Segoe UI", 18, "bold")).pack(anchor="w")
+        tk.Label(content, text="Все изменения сохраняются только на этом компьютере.",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(2, 14))
+
+        title_var = tk.StringVar(value=task[1] if task else "")
+        priority_labels = {"low": "Низкий", "normal": "Обычный", "high": "Высокий"}
+        priority_var = tk.StringVar(value=priority_labels.get(task[3], "Обычный") if task else "Обычный")
+        due_var = tk.StringVar(value=(task[4] or "") if task else "")
+        minutes_var = tk.StringVar(value=str(task[5]) if task and task[5] else "")
+
+        tk.Label(content, text="Название задачи", bg=BG, fg=FG).pack(anchor="w")
+        title_input = tk.Entry(content, textvariable=title_var, bg=INPUT, fg=FG,
+                               insertbackground=FG, relief="flat", font=("Segoe UI", 11))
+        title_input.pack(fill="x", ipady=7, pady=(4, 11))
+
+        details = tk.Frame(content, bg=BG)
+        details.pack(fill="x", pady=(0, 11))
+        priority_column = tk.Frame(details, bg=BG)
+        priority_column.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        tk.Label(priority_column, text="Приоритет", bg=BG, fg=FG).pack(anchor="w")
+        ttk.Combobox(priority_column, textvariable=priority_var, state="readonly",
+                     values=("Низкий", "Обычный", "Высокий"),
+                     style="Sherlock.TCombobox", width=17).pack(fill="x", pady=(4, 0))
+        minutes_column = tk.Frame(details, bg=BG)
+        minutes_column.pack(side="left", fill="x", expand=True)
+        tk.Label(minutes_column, text="Оценка, минуты", bg=BG, fg=FG).pack(anchor="w")
+        tk.Entry(minutes_column, textvariable=minutes_var, bg=INPUT, fg=FG,
+                 insertbackground=FG, relief="flat").pack(fill="x", ipady=7, pady=(4, 0))
+
+        tk.Label(content, text="Срок · ГГГГ-ММ-ДД (необязательно)",
+                 bg=BG, fg=FG).pack(anchor="w")
+        tk.Entry(content, textvariable=due_var, bg=INPUT, fg=FG,
+                 insertbackground=FG, relief="flat").pack(fill="x", ipady=7, pady=(4, 7))
+        shortcuts = tk.Frame(content, bg=BG)
+        shortcuts.pack(fill="x", pady=(0, 12))
+        for label, value in (
+            ("Сегодня", date.today().isoformat()),
+            ("Завтра", (date.today() + timedelta(days=1)).isoformat()),
+            ("Без срока", ""),
+        ):
+            tk.Button(shortcuts, text=label, command=lambda v=value: due_var.set(v),
+                      bg=PANEL, fg=FG, relief="flat", padx=10, pady=5).pack(
+                          side="left", padx=(0, 6))
+
+        def save():
+            minutes_text = minutes_var.get().strip()
+            try:
+                minutes = int(minutes_text) if minutes_text else None
+                priority = {"Низкий": "low", "Обычный": "normal", "Высокий": "high"}[priority_var.get()]
+                if task is None:
+                    self.store.add_task_full(title_var.get(), priority, due_var.get().strip(), minutes)
+                elif not self.store.save_task_fields(
+                    task_id, title_var.get(), priority, due_var.get().strip(), minutes,
+                ):
+                    messagebox.showwarning(
+                        "Задача не найдена", "Задача удалена. Обнови список.", parent=editor,
+                    )
+                    return
+            except ValueError as exc:
+                messagebox.showwarning("Проверь данные", str(exc), parent=editor)
+                return
+            editor.destroy()
+            self.task_filter.set("Открытые" if task is None else self.task_filter.get())
             self.refresh()
-        except ValueError as exc:
-            messagebox.showwarning("Проверь срок", str(exc), parent=self.window)
+            self.status.configure(text="Задача создана." if task is None else "Изменения сохранены.")
+
+        actions = tk.Frame(content, bg=BG)
+        actions.pack(fill="x")
+        tk.Button(actions, text="Сохранить", command=save, bg=ACCENT, fg=BG,
+                  relief="flat", padx=17, pady=9).pack(side="right")
+        tk.Button(actions, text="Отмена", command=editor.destroy, bg=PANEL, fg=FG,
+                  relief="flat", padx=14, pady=9).pack(side="right", padx=(0, 8))
+        editor.bind("<Escape>", lambda _event: editor.destroy())
+        editor.grab_set()
+        title_input.focus_set()
 
     def edit_task_estimate(self):
         task_id = self._selected(self.tasks)
