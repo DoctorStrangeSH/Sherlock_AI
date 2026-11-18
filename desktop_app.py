@@ -405,39 +405,66 @@ class SherlockDesktop:
                  bg=SURFACE, fg="#a9f6ce", justify="left", wraplength=590,
                  font=("Segoe UI", 9)).pack(anchor="w")
 
+        chat_heading = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24, pady=12)
+        chat_heading.pack(fill="x")
+        heading_text = tk.Frame(chat_heading, bg=BACKGROUND)
+        heading_text.pack(side="left", fill="x", expand=True)
+        tk.Label(heading_text, text="Личное общение", bg=BACKGROUND, fg=TEXT,
+                 font=("Segoe UI", 19, "bold")).pack(anchor="w")
+        self.chat_model_status = tk.Label(
+            heading_text, text="● Проверяем локальную модель…", bg=BACKGROUND,
+            fg=MUTED, font=("Segoe UI", 9), anchor="w",
+        )
+        self.chat_model_status.pack(anchor="w", pady=(3, 0))
+        quick_actions = tk.Frame(chat_heading, bg=BACKGROUND)
+        quick_actions.pack(side="right", padx=(12, 0))
+        tk.Button(quick_actions, text="◷ Мой день", command=lambda: self.show_page("day"),
+                  bg=SURFACE, fg=TEXT, activebackground=INPUT, activeforeground=TEXT,
+                  relief="flat", padx=11, pady=7).pack(side="left", padx=(0, 6))
+        tk.Button(quick_actions, text="✓ Задачи", command=lambda: self.show_page("tasks"),
+                  bg=SURFACE, fg=TEXT, activebackground=INPUT, activeforeground=TEXT,
+                  relief="flat", padx=11, pady=7).pack(side="left")
+
         self.chat = ScrolledText(self.chat_page, height=8, wrap="word", bg=SURFACE, fg=TEXT,
                                  insertbackground=TEXT, font=("Segoe UI", 11),
-                                 relief="flat", padx=18, pady=16, state="disabled",
-                                 spacing2=5)
-        self.chat.pack(fill="both", expand=True, padx=24, pady=(14, 12))
-        self.chat.tag_configure("user", foreground=ACCENT, font=("Segoe UI", 11, "bold"))
-        self.chat.tag_configure("assistant", foreground="#98e7c9", font=("Segoe UI", 11, "bold"))
+                                 relief="flat", borderwidth=0, padx=18, pady=16,
+                                 state="disabled", spacing2=5)
+        self.chat.pack(fill="both", expand=True, padx=24, pady=(0, 12))
+        self.chat.tag_configure("user", foreground=ACCENT, font=("Segoe UI", 11, "bold"),
+                                spacing1=6, spacing3=3)
+        self.chat.tag_configure("assistant", foreground="#98e7c9",
+                                font=("Segoe UI", 11, "bold"), spacing1=6, spacing3=3)
         self.chat.tag_configure("system", foreground=MUTED)
 
-        composer = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24)
-        composer.pack(fill="x")
-        self.input = tk.Text(composer, height=2, bg=INPUT, fg=TEXT,
+        composer = tk.Frame(self.chat_page, bg=SURFACE, padx=12, pady=10)
+        composer.pack(fill="x", padx=24)
+        tk.Label(composer, text="Твоё сообщение", bg=SURFACE, fg=MUTED,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 6))
+        compose_row = tk.Frame(composer, bg=SURFACE)
+        compose_row.pack(fill="x")
+        self.input = tk.Text(compose_row, height=2, bg=INPUT, fg=TEXT,
                              insertbackground=TEXT, wrap="word", relief="flat",
                              font=("Segoe UI", 11), padx=12, pady=10)
         self.input.bind("<Control-Return>", self.send_event)
-        self.send_button = tk.Button(composer, text="Отправить ↗", command=self.send,
+        self.send_button = tk.Button(compose_row, text="Отправить ↗", command=self.send,
                                      bg=ACCENT, fg=BACKGROUND, activebackground="#a8b6ff",
-                                     relief="flat", padx=16, font=("Segoe UI", 10, "bold"))
+                                     activeforeground=BACKGROUND, relief="flat",
+                                     padx=16, font=("Segoe UI", 10, "bold"))
         self.send_button.pack(side="right", padx=(10, 0), fill="y")
         self.input.pack(side="left", fill="both", expand=True)
 
-        footer = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24, pady=12)
+        footer = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24, pady=10)
         footer.pack(fill="x")
-        self.status = tk.Label(footer, text="Ctrl+Enter — отправить · История только в памяти окна",
-                               bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9))
+        self.status = tk.Label(footer, text="Ctrl+Enter — отправить · Диалог остаётся в памяти окна",
+                               bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9), anchor="w")
         tk.Button(footer, text="Сохранить диалог", command=self.save_conversation,
-                  bg=SURFACE, fg=TEXT, activebackground=INPUT,
-                  relief="flat", padx=10).pack(side="right", padx=(0, 8))
-        tk.Button(footer, text="Очистить диалог", command=self.clear,
+                  bg=SURFACE, fg=TEXT, activebackground=INPUT, activeforeground=TEXT,
+                  relief="flat", padx=10, pady=6).pack(side="right", padx=(0, 8))
+        tk.Button(footer, text="Очистить", command=self.clear,
                   bg=BACKGROUND, fg=MUTED, activebackground=SURFACE,
-                  relief="flat").pack(side="right")
+                  activeforeground=TEXT, relief="flat", padx=8, pady=6).pack(side="right")
         self.status.pack(side="left", fill="x", expand=True)
-        self.append("Sherlock AI", "Привет! ❤️ Напиши мне что-нибудь. Для работы нужна установленная Ollama.", "assistant")
+        self.append("Sherlock AI", "Привет! ❤️ Я рядом. Расскажи, что у тебя на уме, или начни с плана дня. Для ответов нужна локальная Ollama.", "assistant")
         self.show_daily_briefing()
         self.root.after(100, self.poll)
         self.root.after(60_000, self.check_reminders)
@@ -1568,6 +1595,19 @@ class SherlockDesktop:
                 self.append_stream_chunk(event[1])
             elif event[0] == "model":
                 self.model_label.configure(text=event[1])
+                model_ready = len(event) > 2 and bool(event[2])
+                if model_ready:
+                    active_model = self.model_choice.get()
+                    active_model = active_model if active_model != "Авто" else event[1].removeprefix("Модель: ")
+                    self.chat_model_status.configure(
+                        text="● Локальная модель готова · " + active_model,
+                        fg="#98e7c9",
+                    )
+                else:
+                    self.chat_model_status.configure(
+                        text="● Ollama не готова · открой настройки",
+                        fg="#f6b7a2",
+                    )
                 if len(event) > 2:
                     models = ["Авто"] + event[2]
                     self.model_picker["values"] = models
