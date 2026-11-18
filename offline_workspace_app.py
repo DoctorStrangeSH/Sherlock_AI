@@ -150,7 +150,18 @@ class WorkspaceWindow:
         self.note_editor = tk.Text(self.note_frame, height=5, bg=INPUT, fg=FG,
                                    insertbackground=FG, wrap="word", relief="flat",
                                    font=("Segoe UI", 10), padx=12, pady=9)
-        self.note_editor.pack(fill="x", padx=18, pady=(0, 10))
+        self.note_editor.pack(fill="x", padx=18, pady=(0, 3))
+        note_help = tk.Frame(self.note_frame, bg=BG)
+        note_help.pack(fill="x", padx=18, pady=(0, 10))
+        tk.Label(note_help, text="Ctrl+S — сохранить · Ctrl+N — новая",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
+        self.note_counter = tk.Label(note_help, text="0 / 1000",
+                                     bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.note_counter.pack(side="right")
+        self.note_editor.bind("<KeyRelease>", lambda _event: self.refresh_editor_counters())
+        self.note_editor.bind("<Control-s>", lambda _event: self.editor_shortcut(self.save_note))
+        self.note_editor.bind("<Control-n>", lambda _event: self.editor_shortcut(self.add_note))
+        self.note_editor.bind("<Control-Return>", lambda _event: self.editor_shortcut(self.save_note))
         self.notes.bind("<Double-1>", lambda _event: self.edit_note())
         self._controls(self.memory_frame, (("Новый факт", self.new_memory),
                                           ("Изменить", self.edit_memory),
@@ -165,7 +176,18 @@ class WorkspaceWindow:
         self.memory_editor = tk.Text(self.memory_frame, height=4, bg=INPUT, fg=FG,
                                      insertbackground=FG, wrap="word", relief="flat",
                                      font=("Segoe UI", 10), padx=12, pady=9)
-        self.memory_editor.pack(fill="x", padx=18, pady=(0, 10))
+        self.memory_editor.pack(fill="x", padx=18, pady=(0, 3))
+        memory_help = tk.Frame(self.memory_frame, bg=BG)
+        memory_help.pack(fill="x", padx=18, pady=(0, 10))
+        tk.Label(memory_help, text="Ctrl+S — сохранить · Ctrl+N — новый факт",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
+        self.memory_counter = tk.Label(memory_help, text="0 / 500",
+                                       bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.memory_counter.pack(side="right")
+        self.memory_editor.bind("<KeyRelease>", lambda _event: self.refresh_editor_counters())
+        self.memory_editor.bind("<Control-s>", lambda _event: self.editor_shortcut(self.save_memory))
+        self.memory_editor.bind("<Control-n>", lambda _event: self.editor_shortcut(self.new_memory))
+        self.memory_editor.bind("<Control-Return>", lambda _event: self.editor_shortcut(self.save_memory))
         self.memories.bind("<Double-1>", lambda _event: self.edit_memory())
         self._controls(self.history_frame, (("Открыть", self.open_conversation),
                                            ("Удалить", self.delete_conversation)))
@@ -202,6 +224,9 @@ class WorkspaceWindow:
             tree.heading(label, text=label)
             tree.column(label, width=width, anchor="w")
         tree.pack(fill="both", expand=True, padx=10, pady=10)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
+        scrollbar.pack(side="right", fill="y", pady=10, padx=(0, 4), before=tree)
+        tree.configure(yscrollcommand=scrollbar.set)
         return tree
 
     @staticmethod
@@ -485,6 +510,23 @@ class WorkspaceWindow:
             self.store.delete_task(task_id)
             self.refresh()
 
+    @staticmethod
+    def editor_shortcut(callback):
+        callback()
+        return "break"
+
+    def refresh_editor_counters(self):
+        note_length = len(self.note_editor.get("1.0", "end-1c"))
+        memory_length = len(self.memory_editor.get("1.0", "end-1c"))
+        self.note_counter.configure(
+            text=f"{note_length} / 1000",
+            fg="#ffb0a5" if note_length > 1000 else MUTED,
+        )
+        self.memory_counter.configure(
+            text=f"{memory_length} / 500",
+            fg="#ffb0a5" if memory_length > 500 else MUTED,
+        )
+
     def confirm_editor_discard(self, kind):
         """Keep local drafts unless the user explicitly discards them."""
         editor = self.note_editor if kind == "note" else self.memory_editor
@@ -506,6 +548,7 @@ class WorkspaceWindow:
         self.note_editor.delete("1.0", "end")
         self.note_hint.configure(text="Новая заметка · до 1000 символов")
         self.note_editor.focus_set()
+        self.refresh_editor_counters()
 
     def edit_note(self):
         note_id = self._selected(self.notes)
@@ -553,6 +596,7 @@ class WorkspaceWindow:
         self.memory_editor.delete("1.0", "end")
         self.memory_hint.configure(text="Новый факт · сохраняется только после нажатия «Сохранить»")
         self.memory_editor.focus_set()
+        self.refresh_editor_counters()
 
     def edit_memory(self):
         memory_id = self._selected(self.memories)
