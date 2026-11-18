@@ -77,7 +77,8 @@ class WorkspaceWindow:
                                          ("Длительность", self.edit_task_estimate),
                                          ("Выполнено", self.complete_task),
                                          ("Вернуть", self.restore_task),
-                                         ("Удалить", self.delete_task)))
+                                         ("Удалить", self.delete_task),
+                                         ("Отменить удаление", self.undo_delete_task)))
         quick_task = tk.Frame(self.task_frame, bg=BG)
         quick_task.pack(fill="x", padx=10, pady=(0, 8))
         self.quick_task_title = tk.Entry(
@@ -548,8 +549,21 @@ class WorkspaceWindow:
     def delete_task(self):
         task_id = self._selected(self.tasks)
         if task_id is not None and messagebox.askyesno("Удалить задачу?", "Удалить выбранную задачу?", parent=self.window):
-            self.store.delete_task(task_id)
-            self.refresh()
+            if self.store.delete_task(task_id):
+                self.refresh()
+                self.status.configure(text="Задача перенесена в архив. Нажми «Отменить удаление», чтобы вернуть её.")
+
+    def undo_delete_task(self):
+        task_id = self.store.restore_last_deleted_task()
+        if task_id is None:
+            self.status.configure(text="Нет удалённых задач для восстановления.")
+            return
+        self.task_filter.set("Все")
+        self.task_search.set("")
+        self.refresh()
+        self.tasks.selection_set(str(task_id))
+        self.tasks.see(str(task_id))
+        self.status.configure(text="Удалённая задача восстановлена.")
 
     @staticmethod
     def editor_shortcut(callback):
