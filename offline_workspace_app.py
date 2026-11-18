@@ -116,8 +116,21 @@ class WorkspaceWindow:
         self.tasks.tag_configure("today", foreground="#ffd38a")
         self.tasks.tag_configure("done", foreground="#98e7c9")
         self.tasks.bind("<Double-1>", lambda _event: self.edit_task_details())
+        self.note_search = self._search_bar(self.note_frame, "Поиск по заметкам…")
+        self.notes_empty = tk.Label(
+            self.note_frame, text="Заметок пока нет. Нажми «Новая», чтобы создать первую.",
+            bg=PANEL, fg=MUTED, anchor="w", padx=14, pady=10,
+        )
         self.notes = self._table(self.note_frame, ("Заметка",), (650,))
+        self.memory_search = self._search_bar(self.memory_frame, "Поиск по памяти…")
+        self.memory_empty = tk.Label(
+            self.memory_frame,
+            text="Память пуста. Сохраняются только факты, которые ты добавишь сам.",
+            bg=PANEL, fg=MUTED, anchor="w", padx=14, pady=10,
+        )
         self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
+        self.note_search.trace_add("write", lambda *_args: self.refresh())
+        self.memory_search.trace_add("write", lambda *_args: self.refresh())
         self.conversations = self._table(self.history_frame, ("Название", "Дата"), (450, 160))
         self._controls(self.note_frame, (("Новая", self.add_note),
                                          ("Изменить", self.edit_note),
@@ -156,6 +169,22 @@ class WorkspaceWindow:
                                font=("Segoe UI", 9))
         self.status.pack(anchor="w", padx=20, pady=(0, 9))
         self.refresh()
+
+    @staticmethod
+    def _search_bar(parent, prompt):
+        search_row = tk.Frame(parent, bg=BG)
+        search_row.pack(fill="x", padx=10, pady=(8, 0))
+        tk.Label(search_row, text="⌕", bg=BG, fg=MUTED,
+                 font=("Segoe UI", 13)).pack(side="left", padx=(0, 8))
+        query = tk.StringVar()
+        tk.Entry(search_row, textvariable=query, bg=INPUT, fg=FG,
+                 insertbackground=FG, relief="flat",
+                 font=("Segoe UI", 10)).pack(
+                     side="left", fill="x", expand=True, ipady=7,
+                 )
+        tk.Label(search_row, text=prompt, bg=BG, fg=MUTED,
+                 font=("Segoe UI", 9)).pack(side="right", padx=(9, 0))
+        return query
 
     @staticmethod
     def _table(parent, labels, widths):
@@ -220,14 +249,42 @@ class WorkspaceWindow:
                                       f"{minutes} мин." if minutes else "—"))
         if selected is not None and self.tasks.exists(str(selected)):
             self.tasks.selection_set(str(selected))
+        selected_note = self._selected(self.notes)
         self.notes.delete(*self.notes.get_children())
         notes = self.store.list_notes()
-        for note_id, content in notes:
+        note_query = self.note_search.get().strip().casefold()
+        visible_notes = [(note_id, content) for note_id, content in notes
+                         if note_query in content.casefold()]
+        self.notes_empty.configure(
+            text="Заметок пока нет. Нажми «Новая», чтобы создать первую." if not notes
+            else "По запросу заметок не найдено.",
+        )
+        if visible_notes:
+            self.notes_empty.pack_forget()
+        else:
+            self.notes_empty.pack(fill="x", padx=10, pady=(7, 0), before=self.notes)
+        for note_id, content in visible_notes:
             self.notes.insert("", "end", iid=str(note_id), values=(content,))
+        if selected_note is not None and self.notes.exists(str(selected_note)):
+            self.notes.selection_set(str(selected_note))
+        selected_memory = self._selected(self.memories)
         self.memories.delete(*self.memories.get_children())
         memories = self.store.list_memories()
-        for memory_id, content in memories:
+        memory_query = self.memory_search.get().strip().casefold()
+        visible_memories = [(memory_id, content) for memory_id, content in memories
+                            if memory_query in content.casefold()]
+        self.memory_empty.configure(
+            text="Память пуста. Добавь факт только по своему желанию." if not memories
+            else "По запросу фактов не найдено.",
+        )
+        if visible_memories:
+            self.memory_empty.pack_forget()
+        else:
+            self.memory_empty.pack(fill="x", padx=10, pady=(7, 0), before=self.memories)
+        for memory_id, content in visible_memories:
             self.memories.insert("", "end", iid=str(memory_id), values=(content,))
+        if selected_memory is not None and self.memories.exists(str(selected_memory)):
+            self.memories.selection_set(str(selected_memory))
         self.conversations.delete(*self.conversations.get_children())
         conversations = self.store.list_conversations()
         for conversation_id, title, created_at in conversations:
