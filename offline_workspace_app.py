@@ -573,10 +573,12 @@ class WorkspaceWindow:
         self.note_editor.delete("1.0", "end")
         self.note_editor.insert("1.0", values[0] if values else "")
         self.note_hint.configure(text=f"Редактирование заметки №{note_id}")
+        self.refresh_editor_counters()
         self.note_editor.focus_set()
 
     def save_note(self):
         content = self.note_editor.get("1.0", "end-1c")
+        was_editing = self.editing_note_id is not None
         try:
             if self.editing_note_id is None:
                 self.store.add_note(content)
@@ -586,6 +588,8 @@ class WorkspaceWindow:
             self.note_baseline = content
             self.add_note()
             self.refresh()
+            self.status.configure(text="Заметка обновлена и сохранена." if was_editing
+                                  else "Новая заметка сохранена.")
         except ValueError as exc:
             messagebox.showwarning("Проверь текст", str(exc), parent=self.window)
 
@@ -621,10 +625,12 @@ class WorkspaceWindow:
         self.memory_editor.delete("1.0", "end")
         self.memory_editor.insert("1.0", values[0] if values else "")
         self.memory_hint.configure(text=f"Редактирование факта №{memory_id}")
+        self.refresh_editor_counters()
         self.memory_editor.focus_set()
 
     def save_memory(self):
         content = self.memory_editor.get("1.0", "end-1c")
+        was_editing = self.editing_memory_id is not None
         try:
             if self.editing_memory_id is None:
                 self.store.add_memory(content)
@@ -634,6 +640,8 @@ class WorkspaceWindow:
             self.memory_baseline = content
             self.new_memory()
             self.refresh()
+            self.status.configure(text="Факт памяти обновлён и сохранён." if was_editing
+                                  else "Новый факт памяти сохранён.")
         except ValueError as exc:
             messagebox.showwarning("Проверь текст", str(exc), parent=self.window)
 
