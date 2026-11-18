@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+*.session
+*.session-journal
+*.db
+*.db-wal
+*.db-shm
+__pycache__
+.pytest_cache
+.venv
+tests

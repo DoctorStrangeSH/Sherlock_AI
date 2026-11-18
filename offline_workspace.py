@@ -1,0 +1,668 @@
+"""Local tasks and notes for the desktop assistant; no Telegram dependencies."""
+
+import os
+import json
+from pathlib import Path
+import sqlite3
+from datetime import date
+
+
+def default_database_path():
+    base = os.environ.get("LOCALAPPDATA")
+    if base:
+        return Path(base) / "SherlockAI" / "workspace.sqlite3"
+    return Path.home() / ".local" / "share" / "SherlockAI" / "workspace.sqlite3"
+
+
+class OfflineWorkspace:
+    def __init__(self, path=None):
+        self.path = Path(path) if path is not None else default_database_path()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(self.path))
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                done INTEGER NOT NULL DEFAULT 0 CHECK(done IN (0, 1)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS notes (
+                id INTEGER PRIMARY KEY,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS focus_sessions (
+                id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                duration_seconds INTEGER NOT NULL CHECK(duration_seconds > 0),
+                session_date TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS saved_plans (
+                id INTEGER PRIMARY KEY,
+                plan_date TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS conversations (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                messages TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        # Keep recoverable task snapshots separate from the active task list.
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS deleted_tasks (
+                archive_id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                done INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                due_date TEXT,
+                estimated_minutes INTEGER,
+                project TEXT NOT NULL DEFAULT '',
+                deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS projects (
+                name TEXT PRIMARY KEY COLLATE NOCASE,
+                description TEXT NOT NULL DEFAULT '',
+                goal TEXT NOT NULL DEFAULT '',
+                priority TEXT NOT NULL DEFAULT 'normal',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Compatible migration: never recreate the existing tasks table.
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(tasks)")}
+        with self.conn:
+            if "priority" not in columns:
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'")
+            if "due_date" not in columns:
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
+            if "estimated_minutes" not in columns:
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN estimated_minutes INTEGER")
+            if "project" not in columns:
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT ''")
+            project_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(projects)")}
+            if "priority" not in project_columns:
+                self.conn.execute("ALTER TABLE projects ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'")
+            archived_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(deleted_tasks)")}
+            if "project" not in archived_columns:
+                self.conn.execute("ALTER TABLE deleted_tasks ADD COLUMN project TEXT NOT NULL DEFAULT ''")
+
+    @staticmethod
+    def _clean(value, maximum):
+        text = " ".join(str(value).split())
+        if not text or len(text) > maximum:
+            raise ValueError(f"Текст должен содержать от 1 до {maximum} символов")
+        return text
+
+    @staticmethod
+    def _validate_task_meta(priority="normal", due_date=None):
+        if priority not in ("low", "normal", "high"):
+            raise ValueError("Неизвестный приоритет задачи.")
+        if due_date in ("", None):
+            return priority, None
+        if not isinstance(due_date, str) or len(due_date) != 10:
+            raise ValueError("Дата должна быть в формате ГГГГ-ММ-ДД.")
+        try:
+            parsed = date.fromisoformat(due_date)
+        except ValueError as exc:
+            raise ValueError("Некорректная дата задачи.") from exc
+        if parsed.isoformat() != due_date:
+            raise ValueError("Дата должна быть в формате ГГГГ-ММ-ДД.")
+        return priority, due_date
+
+    def add_task(self, title, priority="normal", due_date=None):
+        title = self._clean(title, 300)
+        priority, due_date = self._validate_task_meta(priority, due_date)
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO tasks (title, priority, due_date) VALUES (?, ?, ?)",
+                (title, priority, due_date)).lastrowid
+
+    def save_task_fields(self, task_id, title, priority="normal", due_date=None,
+                         estimated_minutes=None, project=None):
+        """Atomically update the editable fields of an existing task."""
+        if not isinstance(task_id, int) or isinstance(task_id, bool) or task_id <= 0:
+            raise ValueError("Некорректный номер задачи.")
+        title = self._clean(title, 300)
+        priority, due_date = self._validate_task_meta(priority, due_date)
+        if project is not None:
+            project = self._clean_project(project)
+        if estimated_minutes is not None and (
+            isinstance(estimated_minutes, bool)
+            or not isinstance(estimated_minutes, int)
+            or not 5 <= estimated_minutes <= 1440
+        ):
+            raise ValueError("Длительность должна быть от 5 до 1440 минут.")
+        with self.conn:
+            return self.conn.execute(
+                "UPDATE tasks SET title = ?, priority = ?, due_date = ?, "
+                "estimated_minutes = ?, project = COALESCE(?, project) WHERE id = ?",
+                (title, priority, due_date, estimated_minutes, project, task_id),
+            ).rowcount > 0
+
+    def add_task_full(self, title, priority="normal", due_date=None,
+                      estimated_minutes=None, project=""):
+        """Create a task with all fields in one transaction."""
+        title = self._clean(title, 300)
+        project = self._clean_project(project)
+        priority, due_date = self._validate_task_meta(priority, due_date)
+        if estimated_minutes is not None and (
+            isinstance(estimated_minutes, bool)
+            or not isinstance(estimated_minutes, int)
+            or not 5 <= estimated_minutes <= 1440
+        ):
+            raise ValueError("Длительность должна быть от 5 до 1440 минут.")
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO tasks (title, priority, due_date, estimated_minutes, project) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (title, priority, due_date, estimated_minutes, project),
+            ).lastrowid
+
+    @staticmethod
+    def _clean_project(project):
+        if not isinstance(project, str) or len(project.strip()) > 60:
+            raise ValueError("Название проекта должно быть не длиннее 60 символов.")
+        return " ".join(project.split())
+
+    def save_project(self, name, description="", goal="", priority="normal"):
+        name = self._clean_project(name)
+        if not name:
+            raise ValueError("Укажи название проекта.")
+        if not isinstance(description, str) or len(description.strip()) > 500:
+            raise ValueError("Описание проекта должно быть до 500 символов.")
+        if not isinstance(goal, str) or len(goal.strip()) > 300:
+            raise ValueError("Цель проекта должна быть до 300 символов.")
+        if priority not in ("low", "normal", "high"):
+            raise ValueError("Неизвестный приоритет проекта.")
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO projects (name, description, goal, priority) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET description = excluded.description, "
+                "goal = excluded.goal, priority = excluded.priority",
+                (name, description.strip(), goal.strip(), priority),
+            )
+        return name
+
+    def list_project_details(self):
+        return self.conn.execute(
+            "SELECT name, description, goal, priority FROM projects ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+
+    def list_task_projects(self):
+        return dict(self.conn.execute("SELECT id, project FROM tasks").fetchall())
+
+    def list_project_names(self):
+        return [row[0] for row in self.conn.execute(
+            "SELECT name FROM ("
+            " SELECT name FROM projects UNION SELECT project AS name FROM tasks WHERE project != ''"
+            ") ORDER BY name COLLATE NOCASE"
+        )]
+
+    def list_project_overview(self, today=None):
+        """Project summary, including unassigned tasks and only known estimates."""
+        today = today or date.today().isoformat()
+        return self.conn.execute(
+            "SELECT project, COUNT(done), "
+            "COALESCE(SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END), 0), "
+            "COALESCE(SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END), 0), "
+            "SUM(CASE WHEN done = 0 AND due_date IS NOT NULL AND due_date < ? THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN done = 0 AND due_date = ? THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN done = 0 THEN COALESCE(estimated_minutes, 0) ELSE 0 END), "
+            "SUM(CASE WHEN done = 0 AND estimated_minutes IS NULL THEN 1 ELSE 0 END) "
+            "FROM (SELECT project, done, due_date, estimated_minutes FROM tasks "
+            "UNION ALL SELECT name AS project, NULL, NULL, NULL FROM projects "
+            "WHERE name NOT IN (SELECT project FROM tasks)) "
+            "GROUP BY project ORDER BY project COLLATE NOCASE",
+            (today, today),
+        ).fetchall()
+
+    def list_tasks(self):
+        return self.conn.execute("SELECT id, title, done FROM tasks ORDER BY done, id DESC").fetchall()
+
+    def list_task_details(self):
+        return self.conn.execute(
+            "SELECT id, title, done, priority, due_date FROM tasks ORDER BY done, id DESC"
+        ).fetchall()
+
+    def list_task_estimates(self):
+        """Task tuple: id, title, done, priority, due_date, estimated_minutes."""
+        return self.conn.execute(
+            "SELECT id, title, done, priority, due_date, estimated_minutes "
+            "FROM tasks ORDER BY done, id DESC"
+        ).fetchall()
+
+    def update_task_estimate(self, task_id, minutes=None):
+        """An unknown duration stays NULL; never silently invent an estimate."""
+        if minutes is not None and (
+            isinstance(minutes, bool) or not isinstance(minutes, int) or not 5 <= minutes <= 1440
+        ):
+            raise ValueError("Длительность должна быть от 5 до 1440 минут.")
+        with self.conn:
+            return self.conn.execute(
+                "UPDATE tasks SET estimated_minutes = ? WHERE id = ?", (minutes, task_id)
+            ).rowcount > 0
+
+    def update_task_details(self, task_id, priority="normal", due_date=None):
+        priority, due_date = self._validate_task_meta(priority, due_date)
+        with self.conn:
+            return self.conn.execute(
+                "UPDATE tasks SET priority = ?, due_date = ? WHERE id = ?",
+                (priority, due_date, task_id)).rowcount > 0
+
+    def save_focus_session(self, task_id, title, duration_seconds, session_date):
+        """Persist a completed session only after an explicit user choice."""
+        if not isinstance(task_id, int) or isinstance(task_id, bool) or task_id <= 0:
+            raise ValueError("Некорректный номер задачи.")
+        title = self._clean(title, 300)
+        if (not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool)
+                or not 1 <= duration_seconds <= 86400):
+            raise ValueError("Некорректная длительность фокус-сессии.")
+        self._validate_task_meta("normal", session_date)
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO focus_sessions (task_id, title, duration_seconds, session_date) "
+                "VALUES (?, ?, ?, ?)",
+                (task_id, title, duration_seconds, session_date),
+            ).lastrowid
+
+    def focus_day_summary(self, session_date):
+        """(session_count, total_seconds) for one local calendar day."""
+        self._validate_task_meta("normal", session_date)
+        return self.conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(duration_seconds), 0) "
+            "FROM focus_sessions WHERE session_date = ?",
+            (session_date,),
+        ).fetchone()
+
+    def recent_focus_sessions(self, limit=5):
+        """Recent saved focus sessions, newest first."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 50:
+            raise ValueError("Некорректное количество сессий.")
+        return self.conn.execute(
+            "SELECT task_id, title, duration_seconds, session_date "
+            "FROM focus_sessions ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    def focus_week_summary(self, ending_day):
+        """Count and total working seconds over seven calendar days."""
+        from datetime import timedelta
+        self._validate_task_meta("normal", ending_day)
+        first_day = (date.fromisoformat(ending_day) - timedelta(days=6)).isoformat()
+        return self.conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(duration_seconds), 0) "
+            "FROM focus_sessions WHERE session_date BETWEEN ? AND ?",
+            (first_day, ending_day),
+        ).fetchone()
+
+    def top_focus_tasks(self, ending_day, limit=5):
+        """Most focused tasks over seven calendar days; keep one row per task ID."""
+        from datetime import timedelta
+        self._validate_task_meta("normal", ending_day)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
+            raise ValueError("Некорректное количество задач.")
+        first_day = (date.fromisoformat(ending_day) - timedelta(days=6)).isoformat()
+        return self.conn.execute(
+            "SELECT f.task_id, "
+            "(SELECT latest.title FROM focus_sessions AS latest "
+            " WHERE latest.task_id = f.task_id "
+            " AND latest.session_date BETWEEN ? AND ? "
+            " ORDER BY latest.id DESC LIMIT 1) AS title, "
+            "COUNT(*) AS session_count, SUM(f.duration_seconds) AS total_seconds "
+            "FROM focus_sessions AS f "
+            "WHERE f.session_date BETWEEN ? AND ? "
+            "GROUP BY f.task_id "
+            "ORDER BY total_seconds DESC, f.task_id ASC LIMIT ?",
+            (first_day, ending_day, first_day, ending_day, limit),
+        ).fetchall()
+
+    def focus_estimate_comparison(self, session_date, limit=8):
+        """Compare today's saved focus time with current task estimates."""
+        self._validate_task_meta("normal", session_date)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 30:
+            raise ValueError("Некорректное количество задач.")
+        return self.conn.execute(
+            "SELECT t.id, t.title, t.estimated_minutes, "
+            "SUM(f.duration_seconds) AS actual_seconds "
+            "FROM focus_sessions AS f JOIN tasks AS t ON t.id = f.task_id "
+            "WHERE f.session_date = ? AND t.estimated_minutes IS NOT NULL "
+            "GROUP BY t.id, t.title, t.estimated_minutes "
+            "ORDER BY actual_seconds DESC, t.id ASC LIMIT ?",
+            (session_date, limit),
+        ).fetchall()
+
+    def focus_duration_recommendations(self, ending_day, limit=5):
+        """Read-only daily time suggestions from at least three past active days."""
+        from datetime import timedelta
+        from statistics import median
+
+        self._validate_task_meta("normal", ending_day)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
+            raise ValueError("Некорректное количество рекомендаций.")
+        day = date.fromisoformat(ending_day)
+        first_day = (day - timedelta(days=30)).isoformat()
+        last_day = (day - timedelta(days=1)).isoformat()
+        rows = self.conn.execute(
+            "SELECT t.id, t.title, t.estimated_minutes, f.session_date, "
+            "SUM(f.duration_seconds) AS day_seconds "
+            "FROM focus_sessions AS f JOIN tasks AS t ON t.id = f.task_id "
+            "WHERE f.session_date BETWEEN ? AND ? "
+            "AND t.estimated_minutes IS NOT NULL AND t.done = 0 "
+            "GROUP BY t.id, t.title, t.estimated_minutes, f.session_date "
+            "ORDER BY t.id, f.session_date",
+            (first_day, last_day),
+        ).fetchall()
+        grouped = {}
+        for task_id, title, estimate, _, seconds in rows:
+            grouped.setdefault(task_id, (title, estimate, []))[2].append(seconds)
+        recommendations = []
+        for task_id, (title, estimate, seconds_per_day) in grouped.items():
+            if len(seconds_per_day) < 3:
+                continue
+            suggested = max(5, min(1440, int((median(seconds_per_day) / 60 + 2.5) // 5) * 5))
+            if abs(suggested - estimate) < max(10, estimate * 0.2):
+                continue
+            recommendations.append((task_id, title, estimate, suggested, len(seconds_per_day)))
+        return sorted(recommendations, key=lambda item: (-abs(item[3] - item[2]), item[0]))[:limit]
+
+    def focus_last_seven_days(self, ending_day):
+        """Seven dated totals, including days with no saved sessions."""
+        from datetime import timedelta
+
+        self._validate_task_meta("normal", ending_day)
+        end = date.fromisoformat(ending_day)
+        start = end - timedelta(days=6)
+        rows = self.conn.execute(
+            "SELECT session_date, SUM(duration_seconds) FROM focus_sessions "
+            "WHERE session_date BETWEEN ? AND ? GROUP BY session_date",
+            (start.isoformat(), ending_day),
+        ).fetchall()
+        totals = dict(rows)
+        return [
+            ((start + timedelta(days=offset)).isoformat(),
+             totals.get((start + timedelta(days=offset)).isoformat(), 0))
+            for offset in range(7)
+        ]
+
+    def day_workload_snapshot(self, day):
+        """Open overdue/today estimates and historical active-day focus baseline."""
+        from datetime import timedelta
+        from statistics import median
+
+        self._validate_task_meta("normal", day)
+        rows = self.conn.execute(
+            "SELECT estimated_minutes FROM tasks "
+            "WHERE done = 0 AND due_date IS NOT NULL AND due_date <= ?",
+            (day,),
+        ).fetchall()
+        known = [minutes for (minutes,) in rows if minutes is not None]
+        history_start = (date.fromisoformat(day) - timedelta(days=30)).isoformat()
+        history_end = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
+        history = self.conn.execute(
+            "SELECT SUM(duration_seconds) FROM focus_sessions "
+            "WHERE session_date BETWEEN ? AND ? "
+            "GROUP BY session_date",
+            (history_start, history_end),
+        ).fetchall()
+        typical_minutes = int(median([seconds / 60 for (seconds,) in history])) if len(history) >= 3 else None
+        return (sum(known), len(known), len(rows) - len(known),
+                typical_minutes, len(history))
+
+    def suggest_day_rebalance(self, day, limit=5):
+        """Read-only deferral ideas: never touch overdue or high-priority tasks."""
+        self._validate_task_meta("normal", day)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
+            raise ValueError("Некорректное количество предложений.")
+        planned, _, unknown, typical, _ = self.day_workload_snapshot(day)
+        if typical is None or unknown or planned <= typical * 1.2 or planned - typical < 30:
+            return (0, [], 0)
+        excess = planned - typical
+        rows = self.conn.execute(
+            "SELECT id, title, estimated_minutes, priority FROM tasks "
+            "WHERE done = 0 AND due_date = ? "
+            "AND priority IN ('low', 'normal') AND estimated_minutes IS NOT NULL "
+            "ORDER BY CASE priority WHEN 'low' THEN 0 ELSE 1 END, "
+            "estimated_minutes DESC, id",
+            (day,),
+        ).fetchall()
+        proposed = []
+        remaining = excess
+        for task_id, title, minutes, priority in rows:
+            if remaining <= 0 or len(proposed) >= limit:
+                break
+            proposed.append((task_id, title, minutes, priority))
+            remaining -= minutes
+        return (excess, proposed, max(0, remaining))
+
+    def nonurgent_tasks_due(self, day):
+        """Only open, non-high-priority tasks due exactly on the selected day."""
+        self._validate_task_meta("normal", day)
+        return self.conn.execute(
+            "SELECT id, title FROM tasks "
+            "WHERE done = 0 AND due_date = ? AND priority IN ('low', 'normal') "
+            "ORDER BY id",
+            (day,),
+        ).fetchall()
+
+    def defer_nonurgent_tasks(self, day, task_ids):
+        """Atomically move an explicitly approved snapshot of due-today tasks."""
+        from datetime import timedelta
+        self._validate_task_meta("normal", day)
+        if not isinstance(task_ids, (list, tuple)) or not task_ids or len(task_ids) > 500:
+            raise ValueError("Нет задач для переноса.")
+        if any(not isinstance(item, int) or isinstance(item, bool) or item <= 0 for item in task_ids):
+            raise ValueError("Некорректный номер задачи.")
+        if len(set(task_ids)) != len(task_ids):
+            raise ValueError("Номера задач повторяются.")
+        next_day = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+        with self.conn:
+            placeholders = ",".join("?" for _ in task_ids)
+            existing = self.conn.execute(
+                f"SELECT id FROM tasks WHERE id IN ({placeholders}) "
+                "AND done = 0 AND due_date = ? AND priority IN ('low', 'normal')",
+                (*task_ids, day),
+            ).fetchall()
+            if {row[0] for row in existing} != set(task_ids):
+                raise ValueError("Список задач изменился. Повтори команду.")
+            changed = self.conn.execute(
+                f"UPDATE tasks SET due_date = ? WHERE id IN ({placeholders}) "
+                "AND done = 0 AND due_date = ? AND priority IN ('low', 'normal')",
+                (next_day, *task_ids, day),
+            ).rowcount
+            if changed != len(task_ids):
+                raise ValueError("Не все задачи были перенесены.")
+        return changed
+
+    def save_plan(self, plan_date, content):
+        """Save only an explicitly approved read-only plan snapshot."""
+        if not isinstance(plan_date, str) or date.fromisoformat(plan_date).isoformat() != plan_date:
+            raise ValueError("Некорректная дата плана.")
+        if not isinstance(content, str) or not 1 <= len(content) <= 20000:
+            raise ValueError("Некорректное содержимое плана.")
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO saved_plans (plan_date, content) VALUES (?, ?)",
+                (plan_date, content)
+            ).lastrowid
+
+    def latest_plan(self):
+        return self.conn.execute(
+            "SELECT id, plan_date, content FROM saved_plans ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    def list_saved_plans(self, limit=20):
+        """Recent schedule metadata only; do not load full plan contents."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("Некорректное количество расписаний.")
+        return self.conn.execute(
+            "SELECT id, plan_date, created_at FROM saved_plans ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    def get_saved_plan(self, plan_id):
+        """Read an individual saved schedule without modifying it."""
+        if not isinstance(plan_id, int) or isinstance(plan_id, bool) or plan_id <= 0:
+            raise ValueError("Некорректный номер расписания.")
+        return self.conn.execute(
+            "SELECT id, plan_date, content FROM saved_plans WHERE id = ?",
+            (plan_id,),
+        ).fetchone()
+
+    def complete_task(self, task_id):
+        with self.conn:
+            return self.conn.execute("UPDATE tasks SET done = 1 WHERE id = ? AND done = 0", (task_id,)).rowcount > 0
+
+    def reopen_task(self, task_id):
+        """Return an existing completed task to the active queue."""
+        with self.conn:
+            return self.conn.execute(
+                "UPDATE tasks SET done = 0 WHERE id = ? AND done = 1", (task_id,)
+            ).rowcount > 0
+
+    def delete_task(self, task_id):
+        """Archive the whole task before removal, preserving its original ID."""
+        with self.conn:
+            row = self.conn.execute(
+                "SELECT id, title, done, created_at, priority, due_date, estimated_minutes, project "
+                "FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is None:
+                return False
+            self.conn.execute(
+                "INSERT INTO deleted_tasks "
+                "(task_id, title, done, created_at, priority, due_date, estimated_minutes, project, deleted_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", row,
+            )
+            return self.conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,)).rowcount > 0
+
+    def list_deleted_tasks(self, limit=200):
+        """List recoverable tasks, newest first, without modifying their state."""
+        limit = max(1, min(int(limit), 500))
+        return self.conn.execute(
+            "SELECT archive_id, title, done, priority, due_date, estimated_minutes, deleted_at "
+            "FROM deleted_tasks ORDER BY archive_id DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+    def restore_deleted_task(self, archive_id):
+        """Restore a selected archived task without overwriting an active ID."""
+        if not isinstance(archive_id, int) or isinstance(archive_id, bool) or archive_id <= 0:
+            return None
+        with self.conn:
+            row = self.conn.execute(
+                "SELECT task_id, title, done, created_at, priority, due_date, estimated_minutes, project "
+                "FROM deleted_tasks WHERE archive_id = ?", (archive_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            task_id, title, done, created_at, priority, due_date, minutes, project = row
+            existing = self.conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if existing:
+                task_id = max(
+                    task_id,
+                    self.conn.execute("SELECT COALESCE(MAX(id), 0) FROM tasks").fetchone()[0],
+                ) + 1
+            self.conn.execute(
+                "INSERT INTO tasks (id, title, done, created_at, priority, due_date, estimated_minutes, project) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, title, done, created_at, priority, due_date, minutes, project),
+            )
+            self.conn.execute("DELETE FROM deleted_tasks WHERE archive_id = ?", (archive_id,))
+            return task_id
+
+    def restore_last_deleted_task(self):
+        """Restore the most recently deleted task, even after restarting."""
+        row = self.conn.execute(
+            "SELECT archive_id FROM deleted_tasks ORDER BY archive_id DESC LIMIT 1"
+        ).fetchone()
+        return self.restore_deleted_task(row[0]) if row else None
+
+    def add_note(self, content):
+        content = self._clean(content, 1000)
+        with self.conn:
+            return self.conn.execute("INSERT INTO notes (content) VALUES (?)", (content,)).lastrowid
+
+    def update_note(self, note_id, content):
+        content = self._clean(content, 1000)
+        with self.conn:
+            return self.conn.execute("UPDATE notes SET content = ? WHERE id = ?",
+                                     (content, note_id)).rowcount > 0
+
+    def list_notes(self):
+        return self.conn.execute("SELECT id, content FROM notes ORDER BY id DESC").fetchall()
+
+    def delete_note(self, note_id):
+        with self.conn:
+            return self.conn.execute("DELETE FROM notes WHERE id = ?", (note_id,)).rowcount > 0
+
+    def add_memory(self, content):
+        content = self._clean(content, 500)
+        with self.conn:
+            return self.conn.execute("INSERT INTO memories (content) VALUES (?)", (content,)).lastrowid
+
+    def list_memories(self):
+        return self.conn.execute("SELECT id, content FROM memories ORDER BY id DESC").fetchall()
+
+    def update_memory(self, memory_id, content):
+        content = self._clean(content, 500)
+        with self.conn:
+            return self.conn.execute("UPDATE memories SET content = ? WHERE id = ?",
+                                     (content, memory_id)).rowcount > 0
+
+    def delete_memory(self, memory_id):
+        with self.conn:
+            return self.conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,)).rowcount > 0
+
+    def save_conversation(self, title, messages):
+        title = self._clean(title, 100)
+        if not isinstance(messages, list) or not messages or len(messages) > 200:
+            raise ValueError("Диалог должен содержать от 1 до 200 сообщений")
+        safe = []
+        for message in messages:
+            if not isinstance(message, dict) or message.get("role") not in ("user", "assistant"):
+                raise ValueError("Недопустимый формат диалога")
+            content = message.get("content")
+            if not isinstance(content, str) or len(content) > 4000:
+                raise ValueError("Недопустимое сообщение")
+            safe.append({"role": message["role"], "content": content})
+        serialized = json.dumps(safe, ensure_ascii=False)
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO conversations (title, messages) VALUES (?, ?)",
+                (title, serialized)).lastrowid
+
+    def list_conversations(self):
+        return self.conn.execute(
+            "SELECT id, title, created_at FROM conversations ORDER BY id DESC").fetchall()
+
+    def load_conversation(self, conversation_id):
+        row = self.conn.execute(
+            "SELECT messages FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def delete_conversation(self, conversation_id):
+        with self.conn:
+            return self.conn.execute(
+                "DELETE FROM conversations WHERE id = ?", (conversation_id,)).rowcount > 0
+
+    def close(self):
+        self.conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
