@@ -31,6 +31,10 @@ def configure_dark_theme(window):
     style.configure("Sherlock.Treeview.Heading", background=INPUT, foreground=MUTED,
                     font=("Segoe UI", 10, "bold"), padding=9, relief="flat")
     style.map("Sherlock.Treeview.Heading", background=[("active", "#293757")])
+    style.configure("Sherlock.TCombobox", fieldbackground=INPUT, background=INPUT,
+                    foreground=FG, arrowcolor=FG, padding=6)
+    style.map("Sherlock.TCombobox", fieldbackground=[("readonly", INPUT)],
+              foreground=[("readonly", FG)])
     style.configure("Sherlock.TButton", background=INPUT, foreground=FG,
                     padding=(13, 9), borderwidth=0, font=("Segoe UI", 10))
     style.map("Sherlock.TButton", background=[("active", "#34456e"),
@@ -72,13 +76,44 @@ class WorkspaceWindow:
                                          ("Длительность", self.edit_task_estimate),
                                          ("Выполнено", self.complete_task),
                                          ("Удалить", self.delete_task)))
+        quick_task = tk.Frame(self.task_frame, bg=BG)
+        quick_task.pack(fill="x", padx=10, pady=(0, 8))
+        self.quick_task_title = tk.Entry(
+            quick_task, bg=INPUT, fg=FG, insertbackground=FG, relief="flat",
+            font=("Segoe UI", 10),
+        )
+        self.quick_task_title.pack(side="left", fill="x", expand=True, ipady=8)
+        self.quick_task_title.bind("<Return>", self.add_quick_task)
+        tk.Button(
+            quick_task, text="+ Добавить", command=self.add_quick_task,
+            bg=ACCENT, fg=BG, activebackground="#a8b6ff", relief="flat",
+            padx=12, pady=7, font=("Segoe UI", 10, "bold"),
+        ).pack(side="right", padx=(8, 0))
+        filters = tk.Frame(self.task_frame, bg=BG)
+        filters.pack(fill="x", padx=10, pady=(0, 4))
+        tk.Label(filters, text="Показывать:", bg=BG, fg=MUTED,
+                 font=("Segoe UI", 9)).pack(side="left", padx=(0, 8))
+        self.task_filter = tk.StringVar(value="Открытые")
+        self.task_filter_picker = ttk.Combobox(
+            filters, textvariable=self.task_filter, state="readonly",
+            values=("Открытые", "Сегодня", "Просроченные", "Выполненные", "Все"),
+            width=17, style="Sherlock.TCombobox",
+        )
+        self.task_filter_picker.pack(side="left")
+        self.task_filter_picker.bind("<<ComboboxSelected>>", lambda _event: self.refresh())
+        self.task_count_label = tk.Label(filters, text="", bg=BG, fg=MUTED,
+                                         font=("Segoe UI", 9))
+        self.task_count_label.pack(side="right")
         self.tasks_hint = tk.Label(
             self.task_frame, text="Создай первую задачу, чтобы начать планировать день.",
             bg=PANEL, fg=MUTED, anchor="w", padx=14, pady=12,
             font=("Segoe UI", 10),
         )
         self.tasks_hint.pack(fill="x", padx=10, pady=(0, 3))
-        self.tasks = self._table(self.task_frame, ("Состояние", "Задача", "Приоритет", "Срок", "Оценка"), (100, 300, 100, 110, 90))
+        self.tasks = self._table(self.task_frame, ("Состояние", "Задача", "Приоритет", "Срок", "Оценка"), (115, 330, 100, 115, 85))
+        self.tasks.tag_configure("overdue", foreground="#ffb0a5")
+        self.tasks.tag_configure("today", foreground="#ffd38a")
+        self.tasks.tag_configure("done", foreground="#98e7c9")
         self.notes = self._table(self.note_frame, ("Заметка",), (650,))
         self.memories = self._table(self.memory_frame, ("Сохранённый факт",), (650,))
         self.conversations = self._table(self.history_frame, ("Название", "Дата"), (450, 160))
@@ -143,23 +178,46 @@ class WorkspaceWindow:
                        style="Sherlock.TButton").pack(side="left", padx=(0, 8))
 
     def refresh(self):
+        selected = self._selected(self.tasks)
         self.tasks.delete(*self.tasks.get_children())
         tasks = self.store.list_tasks()
-        if tasks:
-            self.tasks_hint.pack_forget()
-        else:
-            self.tasks_hint.pack(fill="x", padx=10, pady=(0, 3), before=self.tasks)
         priority_labels = {"low": "Низкий", "normal": "Обычный", "high": "Высокий"}
         detailed_tasks = self.store.list_task_estimates()
         states = {"done": "✓ Готово", "overdue": "⚠ Просрочено",
                   "today": "◉ Сегодня", "upcoming": "○ В работе",
                   "unscheduled": "○ В работе"}
-        for task in detailed_tasks:
+        active_filter = self.task_filter.get()
+        buckets = {
+            "Открытые": {"overdue", "today", "upcoming", "unscheduled"},
+            "Сегодня": {"today"},
+            "Просроченные": {"overdue"},
+            "Выполненные": {"done"},
+            "Все": set(states),
+        }[active_filter]
+        visible_tasks = [task for task in detailed_tasks if task_bucket(task) in buckets]
+        visible_tasks.sort(key=lambda task: (
+            {"overdue": 0, "today": 1, "upcoming": 2, "unscheduled": 3, "done": 4}[task_bucket(task)],
+            {"high": 0, "normal": 1, "low": 2}.get(task[3], 1),
+            task[4] or "9999-99-99", task[0],
+        ))
+        self.task_count_label.configure(text=f"Показано: {len(visible_tasks)}")
+        if visible_tasks:
+            self.tasks_hint.pack_forget()
+        else:
+            empty_text = ("Задач пока нет. Добавь первую выше." if not detailed_tasks else
+                          "По выбранному фильтру задач нет.")
+            self.tasks_hint.configure(text=empty_text)
+            self.tasks_hint.pack(fill="x", padx=10, pady=(0, 3), before=self.tasks)
+        for task in visible_tasks:
             task_id, title, done, priority, due_date, minutes = task
-            self.tasks.insert("", "end", iid=str(task_id),
-                              values=(states[task_bucket(task)], title,
+            bucket = task_bucket(task)
+            tags = (bucket,) if bucket in ("overdue", "today", "done") else ()
+            self.tasks.insert("", "end", iid=str(task_id), tags=tags,
+                              values=(states[bucket], title,
                                       priority_labels.get(priority, "Обычный"), due_date or "—",
                                       f"{minutes} мин." if minutes else "—"))
+        if selected is not None and self.tasks.exists(str(selected)):
+            self.tasks.selection_set(str(selected))
         self.notes.delete(*self.notes.get_children())
         notes = self.store.list_notes()
         for note_id, content in notes:
@@ -185,11 +243,24 @@ class WorkspaceWindow:
     def add_task(self):
         title = simpledialog.askstring("Новая задача", "Что нужно сделать?", parent=self.window)
         if title is not None:
-            try:
-                self.store.add_task(title)
-                self.refresh()
-            except ValueError as exc:
-                messagebox.showwarning("Проверь текст", str(exc), parent=self.window)
+            self.create_task(title)
+
+    def add_quick_task(self, event=None):
+        title = self.quick_task_title.get()
+        if self.create_task(title):
+            self.quick_task_title.delete(0, "end")
+            self.quick_task_title.focus_set()
+        return "break"
+
+    def create_task(self, title):
+        try:
+            self.store.add_task(title)
+            self.task_filter.set("Открытые")
+            self.refresh()
+            return True
+        except ValueError as exc:
+            messagebox.showwarning("Проверь текст", str(exc), parent=self.window)
+            return False
 
     def edit_task_details(self):
         task_id = self._selected(self.tasks)
