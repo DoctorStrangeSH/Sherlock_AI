@@ -500,7 +500,21 @@ class SherlockDesktop:
         threading.Thread(target=self.check_model, daemon=True).start()
         self.input.focus_set()
         self.root.bind("<Configure>", self.on_window_resize)
+        self.root.bind_all("<MouseWheel>", self.on_mouse_wheel, add="+")
         self.root.after_idle(lambda: self.update_navigation_layout(self.root.winfo_width()))
+
+    def on_mouse_wheel(self, event):
+        """Scroll the day overview when the pointer is over its content."""
+        if self.current_page != "day" or not event.delta:
+            return
+        if isinstance(event.widget, (tk.Text, tk.Listbox, ttk.Treeview)):
+            return
+        widget = event.widget
+        while widget is not None:
+            if widget is self.day_page:
+                self.day_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+                return "break"
+            widget = getattr(widget, "master", None)
 
     def on_window_resize(self, event) -> None:
         if event.widget is self.root:
@@ -1750,6 +1764,19 @@ class SherlockDesktop:
         self.append("Sherlock AI", "Начнём с чистого листа! ✨", "assistant")
 
     def close(self) -> None:
+        if self.busy and not messagebox.askyesno(
+            "Ответ ещё формируется",
+            "Локальная модель ещё отвечает. Закрыть Sherlock AI и прервать ответ?",
+            parent=self.root,
+        ):
+            return
+        unsent = self.input.get("1.0", "end-1c").strip()
+        if unsent and not messagebox.askyesno(
+            "Несохранённое сообщение",
+            "В поле ввода остался текст, который ты не отправил. Закрыть приложение?",
+            parent=self.root,
+        ):
+            return
         if self.workspace_panel is not None and not self.workspace_panel.close():
             return
         self.closed = True
@@ -1774,6 +1801,13 @@ def run_self_test() -> int:
             note_id = workspace.add_note("Локальное хранилище работает")
             if workspace.list_tasks() != [(task_id, "Проверка сборки", 0)]:
                 raise RuntimeError("Could not write a temporary task.")
+            if not workspace.save_task_fields(
+                task_id, "Проверка редактирования", "high", "2026-11-18", 25,
+            ):
+                raise RuntimeError("Could not update a temporary task.")
+            row = workspace.list_task_estimates()[0]
+            if row[1:] != ("Проверка редактирования", 0, "high", "2026-11-18", 25):
+                raise RuntimeError("Could not verify updated task fields.")
         with OfflineWorkspace(path) as workspace:
             if workspace.list_notes() != [(note_id, "Локальное хранилище работает")]:
                 raise RuntimeError("Could not reopen the temporary database.")
