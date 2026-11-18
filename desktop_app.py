@@ -1836,8 +1836,55 @@ def run_gui_self_test() -> int:
                 app.update_navigation_layout(1200)
                 if int(app.navigation.cget("width")) != 164:
                     raise RuntimeError("Expanded navigation did not activate.")
+                # Exercise actual widget callbacks, not only database methods.
+                panel = app.workspace_panel
+                panel.select_tab(0)
+                panel.quick_task_title.insert(0, "Задача из интерфейса")
+                panel.add_quick_task()
+                if panel.quick_task_title.get() or len(panel.tasks.get_children()) != 1:
+                    raise RuntimeError("Quick task creation failed in Tk.")
+                task_id = int(panel.tasks.get_children()[0])
+                panel.select_tab(1)
+                panel.note_editor.insert("1.0", "Заметка из интерфейса")
+                panel.save_note()
+                notes = panel.store.list_notes()
+                if len(notes) != 1 or notes[0][1] != "Заметка из интерфейса":
+                    raise RuntimeError("Note editor failed to save.")
+                panel.notes.selection_set(str(notes[0][0]))
+                panel.edit_note()
+                panel.note_editor.insert("end", " — обновлена")
+                panel.save_note()
+                if panel.store.list_notes()[0][1] != "Заметка из интерфейса — обновлена":
+                    raise RuntimeError("Note editor failed to update.")
+                panel.select_tab(2)
+                panel.memory_editor.insert("1.0", "Факт из интерфейса")
+                panel.save_memory()
+                memories = panel.store.list_memories()
+                if len(memories) != 1 or memories[0][1] != "Факт из интерфейса":
+                    raise RuntimeError("Memory editor failed to save.")
+                panel.memories.selection_set(str(memories[0][0]))
+                panel.edit_memory()
+                panel.memory_editor.insert("end", " — обновлён")
+                panel.save_memory()
+                if panel.store.list_memories()[0][1] != "Факт из интерфейса — обновлён":
+                    raise RuntimeError("Memory editor failed to update.")
+                # Drafts must survive switching to another page.
+                panel.note_editor.insert("1.0", "Черновик")
+                app.show_page("chat")
+                app.show_page("notes")
+                if panel.note_editor.get("1.0", "end-1c") != "Черновик":
+                    raise RuntimeError("Unsaved note draft was lost on navigation.")
+                panel.note_editor.delete("1.0", "end")
                 app.show_page("chat")
                 app.close()
+                # Verify persistence across SQLite connections after the UI closes.
+                with OfflineWorkspace(Path(folder) / "SherlockAI" / "workspace.sqlite3") as saved:
+                    if not any(row[0] == task_id for row in saved.list_tasks()):
+                        raise RuntimeError("Task was lost after closing Tk.")
+                    if saved.list_notes()[0][1] != "Заметка из интерфейса — обновлена":
+                        raise RuntimeError("Note was lost after closing Tk.")
+                    if saved.list_memories()[0][1] != "Факт из интерфейса — обновлён":
+                        raise RuntimeError("Memory was lost after closing Tk.")
             finally:
                 try:
                     root.destroy()
