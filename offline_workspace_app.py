@@ -76,6 +76,7 @@ class WorkspaceWindow:
                                          ("Изменить задачу", self.edit_task_details),
                                          ("Длительность", self.edit_task_estimate),
                                          ("Выполнено", self.complete_task),
+                                         ("Вернуть", self.restore_task),
                                          ("Удалить", self.delete_task)))
         quick_task = tk.Frame(self.task_frame, bg=BG)
         quick_task.pack(fill="x", padx=10, pady=(0, 8))
@@ -119,7 +120,7 @@ class WorkspaceWindow:
         self.tasks.tag_configure("done", foreground="#98e7c9")
         self.tasks.tag_configure("high", foreground="#f8c978")
         self.tasks.bind("<Double-1>", lambda _event: self.edit_task_details())
-        self.tasks.bind("<space>", self.complete_task_shortcut)
+        self.tasks.bind("<space>", self.toggle_task_shortcut)
         self.note_search = self._search_bar(self.note_frame, "Поиск по заметкам…")
         self.notes_empty = tk.Label(
             self.note_frame, text="Заметок пока нет. Нажми «Новая», чтобы создать первую.",
@@ -521,14 +522,27 @@ class WorkspaceWindow:
 
     def complete_task(self):
         task_id = self._selected(self.tasks)
-        if task_id is not None:
-            self.store.complete_task(task_id)
+        if task_id is not None and self.store.complete_task(task_id):
             self.refresh()
             self.status.configure(text="Задача отмечена выполненной.")
 
-    def complete_task_shortcut(self, _event=None):
-        """Space marks the focused task done without opening another dialog."""
-        self.complete_task()
+    def restore_task(self):
+        task_id = self._selected(self.tasks)
+        if task_id is not None and self.store.reopen_task(task_id):
+            self.refresh()
+            self.status.configure(text="Задача возвращена в работу.")
+
+    def toggle_task_shortcut(self, _event=None):
+        """Space completes or restores the selected task depending on its state."""
+        task_id = self._selected(self.tasks)
+        if task_id is None:
+            return "break"
+        row = next((item for item in self.store.list_tasks() if item[0] == task_id), None)
+        if row is not None:
+            if row[2]:
+                self.restore_task()
+            else:
+                self.complete_task()
         return "break"
 
     def delete_task(self):
