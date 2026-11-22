@@ -43,16 +43,16 @@
 - [x] Логика истории вынесена в `desktop_logic.py`: заголовок диалога и ограниченное окно контекста.
 - [x] Генерация вынесена в Tk-independent `desktop_generation.py`; worker публикует потоковые фрагменты и итоговый ответ в очередь.
 - [x] Добавлены тесты настроек, истории и generation worker.
-- [x] Python checks: 136 тестов прошли на commit `fa6b39d` после реализации отмены генерации.
+- [x] Python checks: 138 тестов прошли на commit `f5010bf`, включая прямые тесты cancellation checkpoints в Ollama client.
 - [x] Windows preview на commit `098f6d5` после добавления отмены и безопасного закрытия: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
-- [ ] Два дополнительных теста прямой отмены Ollama-запроса добавлены в commit `f5010bf`; CI для 138 тестов ожидает запуска.
+- [ ] Дождаться Windows preview на commit `f5010bf` с полным набором из 138 тестов.
 - [ ] Вручную проверить собранный EXE: первый запуск, окно, навигация, закрытие и повторный запуск.
 - [x] Добавлена отмена генерации: cancellation event закрывает активный HTTP response, worker публикует событие остановки.
 - [x] Добавлена кнопка «Остановить»; отменённый частичный ответ не попадает в историю диалога.
 - [x] Закрытие окна ожидает завершения worker и только затем уничтожает Tk root.
-- [x] Python CI после изменений отмены и закрытия: 136 тестов PASS.
+- [x] Python CI после изменений отмены и закрытия: 138 тестов PASS на commit `f5010bf`.
 - [x] Windows Preview после изменений отмены и закрытия: PASS на commit `098f6d5`.
-- [ ] Получить результат CI для двух дополнительных тестов Ollama cancellation (138 tests total).
+- [ ] Получить Windows Preview для commit `f5010bf` (138 tests total).
 - [ ] Проверить реальную отмену активного запроса на Ollama под Windows.
 - [ ] Проверить установку/запуск на чистой Windows без Python.
 - [ ] Проверить масштабирование интерфейса и минимальное разрешение экрана.
