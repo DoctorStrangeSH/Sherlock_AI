@@ -63,6 +63,8 @@
 - [x] Добавлено удаление завершённых handles, чтобы реестр не рос бесконечно в длительных сессиях.
 - [x] Python CI: 154 теста PASS на commit `4a67a9f`.
 - [x] Windows Preview на commit `4a67a9f`: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
+- [x] Локальный поиск и список недавних файлов получили cancellation checkpoints внутри обхода каталогов; отмена больше не ждёт завершения всего сканирования.
+- [ ] Прогнать CI и Windows Preview после добавления cancellation checkpoints файлового поиска.
 - [ ] Проверить реальную отмену активного запроса на Ollama под Windows.
 - [ ] Проверить установку/запуск на чистой Windows без Python.
 - [ ] Проверить масштабирование интерфейса и минимальное разрешение экрана.
