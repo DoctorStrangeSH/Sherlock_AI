@@ -34,7 +34,7 @@ from desktop_events import DesktopEventBus, OperationRegistry
 from desktop_tasks import DesktopTaskManager
 from desktop_diagnostics import (
     configure_diagnostics, install_exception_hooks, safe_exception_summary,
-    write_support_report,
+    shutdown_diagnostics, write_support_report,
 )
 import logging
 from local_ai import selected_model, installed_models
@@ -2313,6 +2313,7 @@ def main() -> None:
         raise
     finally:
         logger.info("Desktop application stopped")
+        shutdown_diagnostics(logger)
 
 
 if __name__ == "__main__":
