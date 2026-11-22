@@ -9,7 +9,7 @@ MAX_READ_BYTES = 128 * 1024
 MAX_QUERY_LENGTH = 120
 
 
-def search_text_folder(folder, query):
+def search_text_folder(folder, query, cancel_event=None):
     """Search filenames and bounded text content; never follow directory symlinks."""
     root = Path(folder).expanduser()
     needle = str(query).strip().casefold()
@@ -22,6 +22,8 @@ def search_text_folder(folder, query):
     skipped = 0
     pending = [(root, 0)]
     while pending and checked < MAX_FILES and len(matches) < MAX_RESULTS:
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("Folder search cancelled.")
         current, depth = pending.pop()
         try:
             entries = sorted(current.iterdir(), key=lambda item: item.name.casefold())
@@ -29,6 +31,8 @@ def search_text_folder(folder, query):
             skipped += 1
             continue
         for entry in entries:
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError("Folder search cancelled.")
             if checked >= MAX_FILES or len(matches) >= MAX_RESULTS:
                 break
             try:
