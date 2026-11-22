@@ -108,6 +108,8 @@ async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tas
     except GenerationCancelled:
         raise
     except RuntimeError as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelled("Generation cancelled.") from exc
         return "Ошибка генерации Ollama: " + str(exc)[:300]
     except ValueError as exc:
         if cancel_event is not None and cancel_event.is_set():
@@ -118,3 +120,7 @@ async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tas
             raise GenerationCancelled("Generation cancelled.") from exc
         return ("Локальная модель недоступна. Запусти Ollama и скачай модель: "
                 "`ollama pull qwen3:8b`. Проверь OLLAMA_URL и OLLAMA_MODEL.")
+    except Exception as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelled("Generation cancelled.") from exc
+        raise
