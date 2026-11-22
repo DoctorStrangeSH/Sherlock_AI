@@ -43,9 +43,9 @@
 - [x] Логика истории вынесена в `desktop_logic.py`: заголовок диалога и ограниченное окно контекста.
 - [x] Генерация вынесена в Tk-independent `desktop_generation.py`; worker публикует потоковые фрагменты и итоговый ответ в очередь.
 - [x] Добавлены тесты настроек, истории и generation worker.
-- [x] Python checks: 131 тест прошёл на commit `26df6dc`; generation worker прошёл Python suite на commit `565e48e`.
-- [x] Windows preview на commit `26df6dc`: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
-- [ ] Получить полный Windows preview PASS после выделения generation worker.
+- [x] Python checks: 134 теста прошли на commit `565e48e`; дополнительная проверка после обновления документации также PASS.
+- [x] Windows preview на commit `565e48e`: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
+- [ ] Вручную проверить собранный EXE: первый запуск, окно, навигация, закрытие и повторный запуск.
 - [ ] Вручную проверить собранный EXE: первый запуск, окно, навигация, закрытие и повторный запуск.
 - [ ] Проверить установку/запуск на чистой Windows без Python.
 - [ ] Проверить масштабирование интерфейса и минимальное разрешение экрана.
