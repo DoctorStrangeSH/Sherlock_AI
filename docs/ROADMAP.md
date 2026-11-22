@@ -58,6 +58,10 @@
 - [x] Ошибки поиска файлов завершают операцию и возвращают UI в рабочее состояние; ошибки диспетчеризации обрабатываются единым recovery handler.
 - [x] Новый event bus и registry прошли 146 Python-тестов на commit `8a98d68`.
 - [x] Windows Preview на commit `adf877b`: GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
+- [x] Добавлен `DesktopTaskManager`: управляемый запуск, cooperative cancellation, ожидание завершения, ошибки задач и shutdown gate.
+- [x] Проверка Ollama и поиск файлов переведены на менеджер; закрытие приложения отменяет и дожидается этих workers вместе с генерацией.
+- [x] Добавлено удаление завершённых handles, чтобы реестр не рос бесконечно в длительных сессиях.
+- [ ] Прогнать Python CI и Windows Preview для менеджера фоновых задач.
 - [ ] Проверить реальную отмену активного запроса на Ollama под Windows.
 - [ ] Проверить установку/запуск на чистой Windows без Python.
 - [ ] Проверить масштабирование интерфейса и минимальное разрешение экрана.
