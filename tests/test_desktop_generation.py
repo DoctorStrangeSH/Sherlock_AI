@@ -11,7 +11,7 @@ class GenerationWorkerTests(unittest.TestCase):
     def test_streamed_chunks_and_final_answer_are_queued(self):
         async def fake_ask(question, **kwargs):
             kwargs["on_chunk"]("Привет")
-            kwargs["on_chunk(" + " ") if False else kwargs["on_chunk"]("!")
+            kwargs["on_chunk"]("!")
             return "Привет!"
 
         events = queue.Queue()
@@ -23,7 +23,6 @@ class GenerationWorkerTests(unittest.TestCase):
         self.assertEqual(events.get_nowait(), ("chunk", "Привет"))
         self.assertEqual(events.get_nowait(), ("chunk", "!"))
         self.assertEqual(events.get_nowait(), ("answer", "Привет?", "Привет!"))
-        self.assertTrue(asyncio.iscoroutinefunction(fake_ask))
 
     def test_generation_failure_returns_safe_error_event(self):
         async def failing_ask(_question, **_kwargs):
