@@ -70,6 +70,7 @@
 - Проверка Ollama, поиск по папке и получение недавних файлов переведены на manager; workers проверяют cancellation перед публикацией результата.
 - Закрытие desktop инициирует shutdown менеджера и ожидает завершения его задач вместе со специализированным cancellable generation worker перед закрытием event bus/Tk.
 - `tests/test_desktop_tasks.py` покрывает завершение, результат, cooperative cancellation, cancel-all, ожидание, timeout, ошибки, запрет новых задач после shutdown и очистку handles.
+- Python CI на commit `4a67a9f` прошёл 154 теста. Windows Preview на том же commit завершил Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
 
 ## 8. Что намеренно НЕ удалено
 
