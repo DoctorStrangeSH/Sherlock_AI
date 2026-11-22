@@ -13,6 +13,8 @@ on:
       - "desktop_logic.py"
       - "desktop_settings.py"
       - "local_ai.py"
+      - "local_folder_search.py"
+      - "local_recent_files.py"
       - "offline_workspace.py"
       - "offline_workspace_app.py"
       - "focus_session.py"
