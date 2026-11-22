@@ -1,6 +1,6 @@
 import unittest
 
-from desktop_logic import ConversationSession, MAX_CONTEXT
+from desktop_logic import ConversationSession, MAX_CONTEXT, context_window, conversation_title
 
 
 class DesktopLogicTests(unittest.TestCase):
@@ -30,6 +30,29 @@ class DesktopLogicTests(unittest.TestCase):
         snapshot = session.snapshot()
         snapshot[0]["content"] = "заменено"
         self.assertEqual(session.history[0]["content"], "тест")
+
+    def test_conversation_title_uses_first_nonempty_user_message(self):
+        messages = [
+            {"role": "assistant", "content": "Привет"},
+            {"role": "user", "content": "  Первый вопрос  "},
+            {"role": "user", "content": "Второй вопрос"},
+        ]
+        self.assertEqual(conversation_title(messages), "Первый вопрос")
+
+    def test_conversation_title_fallback_and_limit(self):
+        self.assertEqual(conversation_title([]), "Диалог")
+        self.assertEqual(conversation_title([{"role": "user", "content": "x" * 100}]), "x" * 70)
+
+    def test_context_window_copies_latest_messages(self):
+        messages = [{"role": "user", "content": str(index)} for index in range(20)]
+        result = context_window(messages)
+        self.assertEqual(len(result), MAX_CONTEXT)
+        self.assertEqual(result[0]["content"], "8")
+        result[0]["content"] = "changed"
+        self.assertEqual(messages[-MAX_CONTEXT]["content"], "8")
+
+    def test_context_window_nonpositive_limit(self):
+        self.assertEqual(context_window([{"role": "user", "content": "x"}], 0), [])
 
     def test_clear(self):
         session = ConversationSession()
