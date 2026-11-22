@@ -45,7 +45,8 @@
 - В `desktop_logic.py` вынесены чистые функции `conversation_title()` и `context_window()`; интерфейс делегирует им выбор заголовка и подготовку ограниченного контекста.
 - Генерация вынесена в `desktop_generation.py`. `GenerationWorker` владеет daemon-потоком, запускает async-функцию локальной модели и отправляет события `chunk`/`answer` в очередь. Worker не импортирует и не вызывает Tkinter.
 - Добавлены тесты для streaming, безопасного fallback при исключении и защиты от одновременного запуска двух запросов.
-- Windows Preview на commit `26df6dc` прошёл все этапы: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и upload.
+- Windows Preview на commit `26df6dc` прошёл все этапы после исправления настроек.
+- После выделения generation worker commit `565e48e` прошёл 134 Python-теста и полный Windows Preview: GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload.
 - Первоначальный тестовый вариант generation worker содержал синтаксическую ошибку; она исправлена до успешного Python CI на commit `565e48e`.
 
 ## 6. Что намеренно НЕ удалено
