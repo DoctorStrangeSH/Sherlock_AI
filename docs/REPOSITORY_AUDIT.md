@@ -49,8 +49,8 @@
 - `local_ai.ask_local_ai()` передаёт cancellation event в blocking request и повторно поднимает `GenerationCancelled`, не маскируя отмену под сетевую ошибку.
 - Desktop UI получил кнопку «Остановить»; частичный ответ после отмены не записывается в историю.
 - При закрытии окна приложение дожидается завершения generation worker перед уничтожением Tk root.
-- Python CI на commit `fa6b39d` прошёл 136 тестов. Windows Preview на commit `098f6d5` прошёл GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload после внедрения отмены/закрытия.
-- В commit `f5010bf` добавлены ещё два теста прямых cancellation checkpoints в Ollama client; результат CI для полного набора из 138 тестов ожидается.
+- Python CI на commit `f5010bf` прошёл 138 тестов, включая два прямых теста cancellation checkpoints в Ollama client.
+- Windows Preview на commit `098f6d5` прошёл GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload после внедрения отмены/закрытия. Повторная сборка с 138 тестами на commit `f5010bf` ожидается.
 - Windows workflow дополнен триггерами на `desktop_generation.py`, `desktop_logic.py`, `desktop_settings.py` и `local_ai.py`, чтобы будущие изменения этих компонентов не пропускали Windows build.
 
 ## 6. Что намеренно НЕ удалено
