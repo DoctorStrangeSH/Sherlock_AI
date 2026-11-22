@@ -736,11 +736,13 @@ class SherlockDesktop:
 
     def recent_files_worker(self, folder: str, question=None, cancel_event=None) -> None:
         try:
-            result = recent_text_files(folder)
+            result = recent_text_files(folder, cancel_event=cancel_event)
             if cancel_event is not None and cancel_event.is_set():
                 return
             self.events.put(("recent_files", result, None, question))
         except Exception as exc:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self.events.put(("recent_files", None, str(exc) or "Неизвестная ошибка.", question))
 
     def display_recent_files(self, result, error, question=None) -> None:
@@ -766,11 +768,13 @@ class SherlockDesktop:
 
     def search_folder_worker(self, folder: str, query: str, question=None, cancel_event=None) -> None:
         try:
-            result = search_text_folder(folder, query)
+            result = search_text_folder(folder, query, cancel_event=cancel_event)
             if cancel_event is not None and cancel_event.is_set():
                 return
             self.events.put(("folder_search", result, None, question))
         except Exception as exc:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self.events.put(("folder_search", None, str(exc) or "Неизвестная ошибка.", question))
 
     def display_folder_search(self, result, error, question=None) -> None:
