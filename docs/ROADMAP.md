@@ -38,17 +38,15 @@
 - [ ] Проверить резервное копирование и восстановление SQLite на реальном пользовательском профиле.
 
 ## Фаза 2 — Desktop приложение
-- [x] Настройки desktop вынесены в независимый `desktop_settings.py`; загрузка выполняется до создания Tk-переменных.
-- [x] Добавлены тесты валидности и round-trip настроек; Python suite проходит на commit `a16c12b` (127 tests).
-- [x] Из `desktop_logic.py` выделены чистые функции заголовка диалога и подготовки ограниченного контекста.
-- [x] `desktop_app.py` использует вынесенные функции вместо повторения логики.
-- [ ] Получить успешный Windows GUI self-test на head после исправления порядка инициализации настроек.
-- [ ] Получить успешный Windows preview на актуальном head.\n- [x] Чтение/валидация/запись пользовательских desktop-настроек вынесены из UI в `desktop_settings.py`.\n- [x] Добавлены unit-тесты для отсутствующего/повреждённого JSON, валидации значений и round-trip сохранения.\n- [ ] Проверить свежий Python CI и Windows preview после выноса настроек.
 - [x] Desktop UI и рабочее пространство реализованы.
-- [x] Есть desktop logic tests и GUI self-test в Windows workflow.
-- [x] Есть PyInstaller Windows build workflow и smoke-test EXE.
-- [ ] Получить свежий успешный запуск Windows workflow на актуальном head PR.
-- [ ] Вручную проверить собранный EXE на Windows: первый запуск, окно, навигация, закрытие, повторный запуск.
+- [x] Настройки вынесены в `desktop_settings.py`; загрузка выполняется до создания Tk-переменных.
+- [x] Логика истории вынесена в `desktop_logic.py`: заголовок диалога и ограниченное окно контекста.
+- [x] Генерация вынесена в Tk-independent `desktop_generation.py`; worker публикует потоковые фрагменты и итоговый ответ в очередь.
+- [x] Добавлены тесты настроек, истории и generation worker.
+- [x] Python checks: 131 тест прошёл на commit `26df6dc`; generation worker прошёл Python suite на commit `565e48e`.
+- [x] Windows preview на commit `26df6dc`: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
+- [ ] Получить полный Windows preview PASS после выделения generation worker.
+- [ ] Вручную проверить собранный EXE: первый запуск, окно, навигация, закрытие и повторный запуск.
 - [ ] Проверить установку/запуск на чистой Windows без Python.
 - [ ] Проверить масштабирование интерфейса и минимальное разрешение экрана.
 - [ ] Убедиться, что рабочие данные сохраняются в ожидаемом каталоге и переживают обновление.
