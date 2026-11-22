@@ -110,6 +110,8 @@ async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tas
     except RuntimeError as exc:
         return "Ошибка генерации Ollama: " + str(exc)[:300]
     except ValueError as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelled("Generation cancelled.") from exc
         return "Локальная модель недоступна. " + str(exc)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         if cancel_event is not None and cancel_event.is_set():
