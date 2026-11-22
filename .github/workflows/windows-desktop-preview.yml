@@ -8,6 +8,7 @@ on:
       - ".github/workflows/windows-desktop-preview.yml"
       - "desktop_app.py"
       - "desktop_events.py"
+      - "desktop_tasks.py"
       - "desktop_generation.py"
       - "desktop_logic.py"
       - "desktop_settings.py"
