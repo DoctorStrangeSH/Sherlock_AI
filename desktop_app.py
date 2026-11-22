@@ -31,6 +31,7 @@ from desktop_logic import ConversationSession, context_window, conversation_titl
 from desktop_settings import load_desktop_settings, save_desktop_settings
 from desktop_generation import GenerationWorker
 from desktop_events import DesktopEventBus, OperationRegistry
+from desktop_tasks import DesktopTaskManager
 from local_ai import selected_model, installed_models
 
 
@@ -49,6 +50,7 @@ class SherlockDesktop:
         self.session = ConversationSession()
         self.events = DesktopEventBus()
         self.operations = OperationRegistry()
+        self.tasks = DesktopTaskManager()
         self.generation_worker = GenerationWorker(self.events)
         self.busy = False
         self.closed = False
@@ -510,7 +512,7 @@ class SherlockDesktop:
         self.root.after(60_000, self.tick_day_page)
         self.root.after(1000, self.tick_focus)
         self.operations.begin("model_check")
-        threading.Thread(target=self.check_model, daemon=True, name="sherlock-model-check").start()
+        self.tasks.start("model-check", self.check_model, on_error=self._on_background_task_error)
         self.input.focus_set()
         self.root.bind("<Configure>", self.on_window_resize)
         self.root.bind_all("<MouseWheel>", self.on_mouse_wheel, add="+")
@@ -700,9 +702,9 @@ class SherlockDesktop:
         self.recent_button.configure(state="disabled")
         self.search_details.configure(text="Ищу в выбранной папке…")
         try:
-            threading.Thread(target=self.search_folder_worker,
-                             args=(self.search_folder, query, command_question),
-                             daemon=True, name="sherlock-folder-search").start()
+            self.tasks.start("folder-search", self.search_folder_worker,
+                             self.search_folder, query, command_question,
+                             on_error=self._on_background_task_error)
         except RuntimeError:
             self.operations.finish("file_search")
             self.searching = False
@@ -722,9 +724,9 @@ class SherlockDesktop:
         self.recent_button.configure(state="disabled")
         self.search_details.configure(text="Проверяю даты изменения файлов…")
         try:
-            threading.Thread(target=self.recent_files_worker,
-                             args=(self.search_folder, command_question),
-                             daemon=True, name="sherlock-recent-files").start()
+            self.tasks.start("recent-files", self.recent_files_worker,
+                             self.search_folder, command_question,
+                             on_error=self._on_background_task_error)
         except RuntimeError:
             self.operations.finish("file_search")
             self.searching = False
@@ -732,9 +734,11 @@ class SherlockDesktop:
             self.recent_button.configure(state="normal")
             self.search_details.configure(text="Не удалось запустить проверку файлов. Попробуй ещё раз.")
 
-    def recent_files_worker(self, folder: str, question=None) -> None:
+    def recent_files_worker(self, folder: str, question=None, cancel_event=None) -> None:
         try:
             result = recent_text_files(folder)
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self.events.put(("recent_files", result, None, question))
         except Exception as exc:
             self.events.put(("recent_files", None, str(exc) or "Неизвестная ошибка.", question))
@@ -760,9 +764,11 @@ class SherlockDesktop:
             self.append("Sherlock AI", "Последние документы (подробности в «Инструментах»):\n" +
                         ("\n".join(item["path"] for item in result["files"][:5]) or "Файлов нет."), "assistant")
 
-    def search_folder_worker(self, folder: str, query: str, question=None) -> None:
+    def search_folder_worker(self, folder: str, query: str, question=None, cancel_event=None) -> None:
         try:
             result = search_text_folder(folder, query)
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self.events.put(("folder_search", result, None, question))
         except Exception as exc:
             self.events.put(("folder_search", None, str(exc) or "Неизвестная ошибка.", question))
@@ -1270,13 +1276,16 @@ class SherlockDesktop:
         self.chat.configure(state="disabled")
         self.chat.see("end")
 
-    def check_model(self) -> None:
+    def check_model(self, cancel_event=None) -> None:
         try:
             result = selected_model()
             models = installed_models()
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self.events.publish("model", "Модель: " + result, models)
         except Exception:
-            self.events.publish("model", "Ollama не готова · проверь установку и модель")
+            if cancel_event is None or not cancel_event.is_set():
+                self.events.publish("model", "Ollama не готова · проверь установку и модель")
 
     def send_event(self, event) -> str:
         self.send()
@@ -1724,6 +1733,8 @@ class SherlockDesktop:
                     self.display_recent_files(event[1], event[2], event[3])
                 elif event[0] == "folder_search":
                     self.display_folder_search(event[1], event[2], event[3])
+                elif event[0] == "task_error":
+                    self._handle_background_task_error(event[1], event[2])
                 elif event[0] == "answer":
                     self.operations.finish("generation")
                     _, question, answer = event
@@ -1752,6 +1763,22 @@ class SherlockDesktop:
             elapsed = int(time.monotonic() - self.started_at)
             self.activity.configure(text=f"Sherlock AI думает… {elapsed} с · ожидаем ответ локальной модели")
         self.root.after(100, self.poll)
+
+    def _on_background_task_error(self, task, error) -> None:
+        """Worker-thread callback: report through the UI event bus only."""
+        self.events.publish("task_error", task.name, str(error)[:240] or "Неизвестная ошибка.")
+
+    def _handle_background_task_error(self, task_name: str, message: str) -> None:
+        if task_name == "model-check":
+            self.operations.finish("model_check")
+            self.chat_model_status.configure(text="● Ошибка проверки Ollama", fg="#f6b7a2")
+        elif task_name in {"folder-search", "recent-files"}:
+            self.operations.finish("file_search")
+            self.searching = False
+            self.search_button.configure(state="normal")
+            self.recent_button.configure(state="normal")
+            self.search_details.configure(text="Фоновая задача завершилась с ошибкой: " + message)
+        self.status.configure(text="Фоновая задача завершилась с ошибкой. Можно повторить операцию.")
 
     def _handle_event_error(self, event) -> None:
         """Restore operation state if a UI event handler unexpectedly fails."""
@@ -1843,15 +1870,17 @@ class SherlockDesktop:
         if self.workspace_panel is not None and not self.workspace_panel.close():
             return
         self.closing = True
+        self.tasks.shutdown(wait=False)
         if self.busy:
             self.stop_generation()
-            self.activity.configure(text="Безопасно завершаем работу…", fg="#f3c5a5")
+        if self.busy or self.tasks.active_count():
+            self.activity.configure(text="Безопасно завершаем фоновые задачи…", fg="#f3c5a5")
             self.root.after(50, self._finish_close_when_idle)
         else:
             self._finalize_close()
 
     def _finish_close_when_idle(self) -> None:
-        if self.generation_worker.is_running:
+        if self.generation_worker.is_running or self.tasks.active_count():
             self.root.after(50, self._finish_close_when_idle)
             return
         self._finalize_close()
