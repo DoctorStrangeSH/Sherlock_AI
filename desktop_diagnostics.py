@@ -37,7 +37,8 @@ def redact_sensitive_text(value: object) -> str:
 
 
 def safe_exception_summary(error: BaseException) -> str:
-    message = redact_sensitive_text(str(error)).strip()
+    # OSError messages frequently embed full user-selected paths and filenames.
+    message = "OS operation failed" if isinstance(error, OSError) else redact_sensitive_text(str(error)).strip()
     if len(message) > 500:
         message = message[:497] + "..."
     return f"{type(error).__name__}: {message or 'no details'}"
@@ -77,10 +78,15 @@ def configure_diagnostics(data_dir: str | Path | None = None, *, app_version: st
                 return logger, log_path
             logger.removeHandler(handler)
             handler.close()
-    handler = RotatingFileHandler(
-        log_path, maxBytes=MAX_LOG_BYTES, backupCount=LOG_BACKUP_COUNT,
-        encoding="utf-8", delay=True,
-    )
+    try:
+        handler = RotatingFileHandler(
+            log_path, maxBytes=MAX_LOG_BYTES, backupCount=LOG_BACKUP_COUNT,
+            encoding="utf-8", delay=True,
+        )
+    except OSError:
+        if not logger.handlers:
+            logger.addHandler(logging.NullHandler())
+        return logger, None
     handler.setFormatter(_RedactingFormatter(
         "%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
