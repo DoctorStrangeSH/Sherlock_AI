@@ -146,3 +146,14 @@ def write_support_report(destination: str | Path, log_path: str | Path, *, app_v
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return target
+
+
+def shutdown_diagnostics(logger: logging.Logger | None = None) -> None:
+    """Flush and close owned file handlers so Windows can release log files."""
+    target = logger or logging.getLogger("sherlock_ai")
+    for handler in tuple(target.handlers):
+        target.removeHandler(handler)
+        try:
+            handler.flush()
+        finally:
+            handler.close()
