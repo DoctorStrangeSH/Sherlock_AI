@@ -1,11 +1,13 @@
 """Background worker for local model generation; contains no Tkinter code."""
 
 import asyncio
+import logging
 import queue
 import threading
 from collections.abc import Callable
 
 from local_ai import GenerationCancelled, ask_local_ai
+from desktop_diagnostics import safe_exception_summary
 
 CANCELLED_ANSWER = "Генерация остановлена пользователем."
 
@@ -86,7 +88,10 @@ class GenerationWorker:
             ))
         except GenerationCancelled:
             answer = CANCELLED_ANSWER
-        except Exception:
+        except Exception as exc:
+            logging.getLogger("sherlock_ai").warning(
+                "Local model generation failed · %s", safe_exception_summary(exc)
+            )
             answer = "Не удалось получить ответ. Проверь подключение к Ollama."
         finally:
             self._set_response(None, cancel_event)
