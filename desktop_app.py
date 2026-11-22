@@ -30,6 +30,7 @@ from task_planner import build_task_plan, build_day_parts, build_time_budget_pla
 from task_scheduler import build_timed_schedule, describe_current_slot, shift_saved_schedule, build_remaining_day_schedule
 from task_reminders import ReminderTracker, valid_reminder_time
 from desktop_logic import ConversationSession, context_window, conversation_title
+from desktop_settings import load_desktop_settings, save_desktop_settings
 from local_ai import ask_local_ai, selected_model, installed_models
 
 
