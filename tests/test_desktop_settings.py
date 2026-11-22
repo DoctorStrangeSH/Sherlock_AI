@@ -36,6 +36,15 @@ class DesktopSettingsTests(unittest.TestCase):
             }), encoding="utf-8")
             self.assertEqual(load_desktop_settings(path), DEFAULT_SETTINGS)
 
+    def test_wrong_json_value_types_fall_back_to_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            path.write_text(json.dumps({
+                "tone": ["unexpected"],
+                "performance": {"unexpected": True},
+            }), encoding="utf-8")
+            self.assertEqual(load_desktop_settings(path), DEFAULT_SETTINGS)
+
     def test_valid_values_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "nested" / "settings.json"
