@@ -59,4 +59,5 @@ class GenerationWorker:
             )
         except Exception:
             answer = "Не удалось получить ответ. Проверь подключение к Ollama."
+        self.thread = None
         self.events.put(("answer", question, answer))
