@@ -9,7 +9,7 @@ MAX_DEPTH = 3
 MAX_RECENT = 25
 
 
-def recent_text_files(folder):
+def recent_text_files(folder, cancel_event=None):
     root = Path(folder).expanduser()
     if not root.is_dir() or root.is_symlink():
         raise ValueError("Выбери существующую папку (не ссылку).")
@@ -18,6 +18,8 @@ def recent_text_files(folder):
     skipped = 0
     items = []
     while pending and scanned < MAX_SCANNED:
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("Recent-files scan cancelled.")
         current, depth = pending.pop()
         try:
             entries = sorted(current.iterdir(), key=lambda entry: entry.name.casefold())
@@ -25,6 +27,8 @@ def recent_text_files(folder):
             skipped += 1
             continue
         for entry in entries:
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError("Recent-files scan cancelled.")
             if scanned >= MAX_SCANNED:
                 break
             try:
