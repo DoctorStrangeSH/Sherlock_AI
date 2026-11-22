@@ -35,10 +35,10 @@ def load_desktop_settings(path):
 
     return {
         "model": model if isinstance(model, str) and model.strip() else DEFAULT_SETTINGS["model"],
-        "tone": tone if tone in _ALLOWED_TONES else DEFAULT_SETTINGS["tone"],
+        "tone": tone if isinstance(tone, str) and tone in _ALLOWED_TONES else DEFAULT_SETTINGS["tone"],
         "reminder_time": reminder_time if valid_reminder_time(reminder_time) else DEFAULT_SETTINGS["reminder_time"],
         "reminders_enabled": reminders_enabled is True,
-        "performance": performance if performance in _ALLOWED_PERFORMANCE else DEFAULT_SETTINGS["performance"],
+        "performance": performance if isinstance(performance, str) and performance in _ALLOWED_PERFORMANCE else DEFAULT_SETTINGS["performance"],
     }
 
 
