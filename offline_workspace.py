@@ -4,7 +4,8 @@ import os
 import json
 from pathlib import Path
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
+from statistics import median
 
 
 def default_database_path():
@@ -300,7 +301,6 @@ class OfflineWorkspace:
 
     def focus_week_summary(self, ending_day):
         """Count and total working seconds over seven calendar days."""
-        from datetime import timedelta
         self._validate_task_meta("normal", ending_day)
         first_day = (date.fromisoformat(ending_day) - timedelta(days=6)).isoformat()
         return self.conn.execute(
@@ -348,7 +348,6 @@ class OfflineWorkspace:
     def focus_duration_recommendations(self, ending_day, limit=5):
         """Read-only daily time suggestions from at least three past active days."""
         from datetime import timedelta
-        from statistics import median
 
         self._validate_task_meta("normal", ending_day)
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
