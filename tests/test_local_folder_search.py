@@ -23,6 +23,21 @@ class FolderSearchTests(unittest.TestCase):
             (root / "binary.txt").write_bytes("секретный".encode("utf-8") + b"\x00")
             self.assertFalse(search_text_folder(root, "секретный")["matches"])
 
+    def test_cancellation_is_checked_during_scan(self):
+        class CancelAfterChecks:
+            def __init__(self):
+                self.checks = 0
+            def is_set(self):
+                self.checks += 1
+                return self.checks >= 3
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for index in range(5):
+                (root / f"file{index}.txt").write_text("ordinary text", encoding="utf-8")
+            with self.assertRaises(InterruptedError):
+                search_text_folder(root, "missing", cancel_event=CancelAfterChecks())
+
     def test_query_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             for text in ("", " " * 4, "a" * 121):
