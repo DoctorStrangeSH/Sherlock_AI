@@ -19,6 +19,28 @@ class DesktopEventBusTests(unittest.TestCase):
         self.assertEqual(bus.drain(2), [("item", 0), ("item", 1)])
         self.assertEqual(bus.drain(10), [("item", 2), ("item", 3), ("item", 4)])
 
+    def test_concurrent_publishers_do_not_lose_accepted_events(self):
+        bus = DesktopEventBus()
+        workers, per_worker = 6, 150
+        barrier = threading.Barrier(workers)
+
+        def publish(worker_id):
+            barrier.wait()
+            for index in range(per_worker):
+                bus.publish("item", worker_id, index)
+
+        threads = [threading.Thread(target=publish, args=(worker,)) for worker in range(workers)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=3)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        events = bus.drain(limit=workers * per_worker)
+        self.assertEqual(len(events), workers * per_worker)
+        self.assertEqual(bus.stats()["published"], workers * per_worker)
+        self.assertEqual(bus.stats()["consumed"], workers * per_worker)
+
     def test_closed_bus_rejects_late_events(self):
         bus = DesktopEventBus()
         bus.publish("before")
