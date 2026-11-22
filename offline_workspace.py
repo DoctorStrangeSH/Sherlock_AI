@@ -311,7 +311,6 @@ class OfflineWorkspace:
 
     def top_focus_tasks(self, ending_day, limit=5):
         """Most focused tasks over seven calendar days; keep one row per task ID."""
-        from datetime import timedelta
         self._validate_task_meta("normal", ending_day)
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
             raise ValueError("Некорректное количество задач.")
@@ -347,7 +346,6 @@ class OfflineWorkspace:
 
     def focus_duration_recommendations(self, ending_day, limit=5):
         """Read-only daily time suggestions from at least three past active days."""
-        from datetime import timedelta
 
         self._validate_task_meta("normal", ending_day)
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
@@ -380,7 +378,6 @@ class OfflineWorkspace:
 
     def focus_last_seven_days(self, ending_day):
         """Seven dated totals, including days with no saved sessions."""
-        from datetime import timedelta
 
         self._validate_task_meta("normal", ending_day)
         end = date.fromisoformat(ending_day)
@@ -399,8 +396,6 @@ class OfflineWorkspace:
 
     def day_workload_snapshot(self, day):
         """Open overdue/today estimates and historical active-day focus baseline."""
-        from datetime import timedelta
-        from statistics import median
 
         self._validate_task_meta("normal", day)
         rows = self.conn.execute(
@@ -459,7 +454,6 @@ class OfflineWorkspace:
 
     def defer_nonurgent_tasks(self, day, task_ids):
         """Atomically move an explicitly approved snapshot of due-today tasks."""
-        from datetime import timedelta
         self._validate_task_meta("normal", day)
         if not isinstance(task_ids, (list, tuple)) or not task_ids or len(task_ids) > 500:
             raise ValueError("Нет задач для переноса.")
