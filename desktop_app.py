@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 import time
-import queue
 import sqlite3
 from datetime import date, timedelta, datetime
 import threading
@@ -1730,17 +1729,17 @@ class SherlockDesktop:
                     _, question, answer = event
                     cancelled = answer == "Генерация остановлена пользователем."
                     if cancelled:
-                        self.append_stream_chunk("\\n[Генерация остановлена] " if self.stream_has_chunks else answer)
+                        self.append_stream_chunk("\n[Генерация остановлена] " if self.stream_has_chunks else answer)
                     else:
                         if not self.stream_has_chunks or answer.startswith(("Ошибка генерации", "Локальная модель недоступна", "Не удалось получить ответ")):
                             if self.stream_has_chunks:
-                                self.append_stream_chunk("\\n[Ответ прервался] ")
+                                self.append_stream_chunk("\n[Ответ прервался] ")
                             self.append_stream_chunk(answer)
                         if self.session.record(question, answer):
                             self.full_history.extend(({"role": "user", "content": question},
                                                       {"role": "assistant", "content": answer}))
                             self.full_history = self.full_history[-200:]
-                    self.append_stream_chunk("\\n\\n")
+                    self.append_stream_chunk("\n\n")
                     self.busy = False
                     self.activity.configure(text="Готов к общению", fg="#98e7c9")
                     self.send_button.configure(state="normal")
