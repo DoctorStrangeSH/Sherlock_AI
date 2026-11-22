@@ -44,10 +44,13 @@
 - Настройки вынесены из `desktop_app.py` в `desktop_settings.py`: загрузка, валидация и сохранение не зависят от Tkinter. Конфигурация загружается до создания Tk-переменных.
 - В `desktop_logic.py` вынесены чистые функции `conversation_title()` и `context_window()`; интерфейс делегирует им выбор заголовка и подготовку ограниченного контекста.
 - Генерация вынесена в `desktop_generation.py`. `GenerationWorker` владеет daemon-потоком, запускает async-функцию локальной модели и отправляет события `chunk`/`answer` в очередь. Worker не импортирует и не вызывает Tkinter.
-- Добавлены тесты для streaming, безопасного fallback при исключении и защиты от одновременного запуска двух запросов.
-- Windows Preview на commit `26df6dc` прошёл все этапы после исправления настроек.
-- После выделения generation worker commit `565e48e` прошёл 134 Python-теста и полный Windows Preview: GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload.
-- Первоначальный тестовый вариант generation worker содержал синтаксическую ошибку; она исправлена до успешного Python CI на commit `565e48e`.
+- Добавлены тесты для streaming, безопасного fallback, защиты от параллельных запросов, отмены активного запроса и отмены до получения HTTP response.
+- `GenerationWorker.cancel()` устанавливает cancellation event и закрывает активный HTTP response; поздно подключившийся response также закрывается.
+- `local_ai.ask_local_ai()` передаёт cancellation event в blocking request и повторно поднимает `GenerationCancelled`, не маскируя отмену под сетевую ошибку.
+- Desktop UI получил кнопку «Остановить»; частичный ответ после отмены не записывается в историю.
+- При закрытии окна приложение дожидается завершения generation worker перед уничтожением Tk root.
+- Python CI на commit `4282d69` прошёл 136 тестов. Windows Preview для отмены/закрытия ожидается; последний полный Windows Preview ранее прошёл на commit `565e48e`.
+- Windows workflow дополнен триггерами на `desktop_generation.py`, `desktop_logic.py`, `desktop_settings.py` и `local_ai.py`, чтобы будущие изменения этих компонентов не пропускали Windows build.
 
 ## 6. Что намеренно НЕ удалено
 
