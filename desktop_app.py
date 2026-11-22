@@ -1,6 +1,5 @@
 """Sherlock AI desktop chat for Windows. No Telegram configuration required."""
 
-import asyncio
 import json
 import os
 from pathlib import Path
@@ -31,6 +30,7 @@ from task_scheduler import build_timed_schedule, describe_current_slot, shift_sa
 from task_reminders import ReminderTracker, valid_reminder_time
 from desktop_logic import ConversationSession, context_window, conversation_title
 from desktop_settings import load_desktop_settings, save_desktop_settings
+from desktop_generation import GenerationWorker
 from local_ai import ask_local_ai, selected_model, installed_models
 
 
@@ -48,6 +48,7 @@ class SherlockDesktop:
         self.root = root
         self.session = ConversationSession()
         self.events = queue.Queue()
+        self.generation_worker = GenerationWorker(self.events)
         self.busy = False
         self.closed = False
         self.workspace_panel = None
@@ -1640,17 +1641,14 @@ class SherlockDesktop:
         self.activity.configure(text="Sherlock AI формирует ответ · первый запуск модели может занять время", fg=ACCENT)
         self.send_button.configure(state="disabled")
         self.status.configure(text="Sherlock AI думает…")
-        threading.Thread(target=self.generate, args=(question, history, tone, None if model == "Авто" else model, self.performance.get(), facts),
-                         daemon=True).start()
-
-    def generate(self, question: str, history: list, tone: str, model: str | None, performance: str, facts: list[str]) -> None:
-        try:
-            answer = asyncio.run(ask_local_ai(question, history=history, tone=tone, model=model, facts=facts,
-                                              on_chunk=lambda chunk: self.events.put(("chunk", chunk)),
-                                              performance=performance))
-        except Exception:
-            answer = "Не удалось получить ответ. Проверь подключение к Ollama."
-        self.events.put(("answer", question, answer))
+        self.generation_worker.start(
+            question,
+            history,
+            tone,
+            None if model == "Авто" else model,
+            self.performance.get(),
+            facts,
+        )
 
     def poll(self) -> None:
         if self.closed:
