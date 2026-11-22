@@ -89,9 +89,11 @@ class GenerationWorker:
         except GenerationCancelled:
             answer = CANCELLED_ANSWER
         except Exception as exc:
-            logging.getLogger("sherlock_ai").warning(
-                "Local model generation failed · %s", safe_exception_summary(exc)
-            )
+            logger = logging.getLogger("sherlock_ai")
+            if logger.handlers:
+                logger.warning(
+                    "Local model generation failed · %s", safe_exception_summary(exc)
+                )
             answer = "Не удалось получить ответ. Проверь подключение к Ollama."
         finally:
             self._set_response(None, cancel_event)
