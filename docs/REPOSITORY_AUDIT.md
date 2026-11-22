@@ -61,6 +61,7 @@
 - Неожиданные исключения при поиске файлов переводятся в событие результата с ошибкой, чтобы UI мог сбросить индикаторы и доступность кнопок.
 - Ошибка отдельного UI event handler перехватывается централизованным recovery handler; поздние события после закрытия приложения отклоняются event bus.
 - `tests/test_desktop_events.py` проверяет FIFO, лимит пакета, закрытие, отбрасывание поздних событий, конкурентную доставку и потокобезопасность registry.
+- Python CI на commit `8a98d68` прошёл 146 тестов. Windows Preview на commit `adf877b` прошёл Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload.
 
 ## 7. Что намеренно НЕ удалено
 
