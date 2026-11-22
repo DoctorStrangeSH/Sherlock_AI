@@ -56,7 +56,8 @@
 - [x] Введён `DesktopEventBus` с FIFO-доставкой, batch drain (100 событий за тик), статистикой и закрытием очереди.
 - [x] Введён `OperationRegistry`; desktop отслеживает генерацию, проверку Ollama и поиск файлов.
 - [x] Ошибки поиска файлов завершают операцию и возвращают UI в рабочее состояние; ошибки диспетчеризации обрабатываются единым recovery handler.
-- [ ] Проверить новый event bus/registry и обновлённый desktop на Python CI и Windows Preview.
+- [x] Новый event bus и registry прошли 146 Python-тестов на commit `8a98d68`.
+- [x] Windows Preview на commit `adf877b`: GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
 - [ ] Проверить реальную отмену активного запроса на Ollama под Windows.
 - [ ] Проверить установку/запуск на чистой Windows без Python.
 - [ ] Проверить масштабирование интерфейса и минимальное разрешение экрана.
