@@ -1198,46 +1198,32 @@ class SherlockDesktop:
         self.chat.see("end")
 
     def load_model_choice(self) -> str:
-        try:
-            return json.loads(self.model_config_path.read_text(encoding="utf-8")).get("model", "Авто")
-        except (OSError, ValueError, TypeError):
-            return "Авто"
+        return self.settings["model"]
 
     def load_tone(self) -> str:
-        try:
-            value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("tone", "Тёплый")
-            return value if value in TONES else "Тёплый"
-        except (OSError, ValueError, TypeError):
-            return "Тёплый"
+        return self.settings["tone"]
 
     def load_reminder_time(self) -> str:
-        try:
-            value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("reminder_time", "09:00")
-            return value if valid_reminder_time(value) else "09:00"
-        except (OSError, ValueError, TypeError):
-            return "09:00"
+        return self.settings["reminder_time"]
 
     def load_reminders_enabled(self) -> bool:
-        try:
-            value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("reminders_enabled", False)
-            return value is True
-        except (OSError, ValueError, TypeError):
-            return False
+        return self.settings["reminders_enabled"]
 
     def load_performance(self) -> str:
-        try:
-            value = json.loads(self.model_config_path.read_text(encoding="utf-8")).get("performance", "Быстро")
-            return value if value in ("Быстро", "Баланс", "Качество") else "Быстро"
-        except (OSError, ValueError, TypeError):
-            return "Быстро"
+        return self.settings["performance"]
 
     def save_model_choice(self, event=None) -> None:
+        self.settings = {
+            "model": self.model_choice.get(),
+            "performance": self.performance.get(),
+            "tone": self.tone.get(),
+            "reminders_enabled": self.reminders_enabled.get(),
+            "reminder_time": self.reminder_time.get(),
+        }
         try:
-            self.model_config_path.parent.mkdir(parents=True, exist_ok=True)
-            self.model_config_path.write_text(json.dumps({"model": self.model_choice.get(), "performance": self.performance.get(),
-                                                        "tone": self.tone.get(), "reminders_enabled": self.reminders_enabled.get(), "reminder_time": self.reminder_time.get()}, ensure_ascii=False), encoding="utf-8")
+            save_desktop_settings(self.model_config_path, self.settings)
         except OSError:
-            self.status.configure(text="Не удалось сохранить выбор модели.")
+            self.status.configure(text="Не удалось сохранить настройки приложения.")
 
     def append_stream_start(self) -> None:
         self.chat.configure(state="normal")
