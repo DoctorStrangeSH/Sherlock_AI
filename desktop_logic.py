@@ -32,3 +32,20 @@ class ConversationSession:
         ))
         self.history = self.history[-MAX_CONTEXT:]
         return True
+
+
+def conversation_title(messages: list[dict[str, str]], max_length: int = 70) -> str:
+    """Derive a stable display title from the first user message."""
+    for message in messages:
+        if message.get("role") == "user" and isinstance(message.get("content"), str):
+            title = message["content"].strip()
+            if title:
+                return title[:max_length]
+    return "Диалог"
+
+
+def context_window(messages: list[dict[str, str]], limit: int = MAX_CONTEXT) -> list[dict[str, str]]:
+    """Copy only the newest conversation messages used as model context."""
+    if limit <= 0:
+        return []
+    return [dict(message) for message in messages[-limit:]]
