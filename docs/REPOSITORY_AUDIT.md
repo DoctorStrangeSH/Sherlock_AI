@@ -1,0 +1,56 @@
+# Sherlock AI — аудит структуры репозитория
+
+**Ветка:** `refactor/secure-local-assistant-foundation`  
+**Аудит:** 22 ноября 2026  
+**Цель:** убрать подтверждённый мусор, снизить путаницу и не повредить работающие сценарии.
+
+## 1. Точки входа
+
+| Файл | Роль | Решение |
+|---|---|---|
+| `desktop_app.py` | Основное desktop-приложение | Сохранить |
+| `offline_workspace_app.py` | Отдельное рабочее пространство без ИИ-чата | Сохранить как самостоятельный режим |
+| `secretary.py` | Telegram-сервис/секретарь | Сохранить как отдельную интеграцию |
+| `chat_cli.py` | Минимальный CLI-режим локального чата | Сохранить как диагностический режим |
+| `doctor.py` | Диагностика окружения | Сохранить |
+| `telegram_setup.py` | Локальная настройка MTProto | Сохранить |
+| `telegram_check.py` | Проверка авторизованной Telegram-сессии | Сохранить |
+| `telegram_connection_probe.py` | Проверка сетевого соединения без авторизации | Сохранить |
+| `simulate_reply_flow.py` | Безопасная симуляция черновиков | Сохранить как тестовый инструмент |
+
+## 2. Группы модулей
+
+- **Desktop и рабочее пространство:** `desktop_app.py`, `desktop_logic.py`, `offline_workspace.py`, `offline_workspace_app.py`.
+- **ИИ и контекст:** `local_ai.py`, `model_selection.py`, `conversation_context.py`, `personality.py`, `memory_suggestions.py`.
+- **Данные и доступ:** `database.py`, `security.py`, `assistant_access.py`, `local_action_policy.py`.
+- **Файлы:** `local_folder_search.py`, `local_recent_files.py`, `local_file_preview.py`, `local_document_analysis.py`.
+- **Задачи и планирование:** `task_planner.py`, `task_scheduler.py`, `task_reminders.py`, `task_overview.py`, `task_daily_briefing.py`, `day_overview.py`, `focus_session.py`.
+- **Telegram:** `secretary.py`, `telegram_network.py`, `telegram_setup.py`, `telegram_check.py`, `telegram_connection_probe.py`, `draft_queue.py`, `reply_drafts.py`, `contact_style.py`, `style_examples.py`, `local_commands.py`, `filters.py`, `keyboards.py`, `integrations.py`, `scheduler.py`, `analytics.py`.
+
+## 3. Что найдено и исправлено в рамках уборки
+
+1. README смешивал несколько способов запуска, называл desktop ранним прототипом и содержал повторяющиеся инструкции. Перестроен в короткую главную инструкцию с таблицей точек входа и ссылками на проектную документацию.
+2. `.gitignore` не исключал стандартные PyInstaller build-артефакты, SQLite-файлы с расширением `.sqlite3`, временные файлы и логи. Добавлены правила.
+3. `.dockerignore` не исключал все локальные SQLite/build/cache артефакты. Синхронизированы правила исключения секретов, пользовательских данных и временных файлов; тесты и документация исключены из Docker build context, поскольку контейнер запускает Telegram-сервис.
+4. В `tests/test_telegram_mtproto.py` класс назывался `TelegramNetworkTests`, хотя файл проверяет MTProto proxy и подсказки доставки кода. Имя класса уточнено.
+
+## 4. Что намеренно НЕ удалено
+
+- Не удалялись отдельные точки входа: у них разные пользовательские сценарии.
+- Не удалялись `tests/test_telegram_network.py` и `tests/test_telegram_mtproto.py`: тесты частично пересекаются по базовым параметрам, но второй покрывает MTProto proxy, secret format и защиту чувствительного payload.
+- Не удалялись модули планировщика, аналитики и интеграций: по одному только дереву файлов нельзя доказать, что они не используются.
+- Не выполнялось массовое перемещение модулей: оно меняет импорты и повышает риск регрессии перед 1.0.
+
+## 5. Остаточные задачи
+
+- [ ] Проверить граф импортов и подтвердить неиспользуемые функции/модули статическим анализом и тестами.
+- [ ] Разделить `desktop_app.py` и `offline_workspace_app.py` только если будет доказано, что дублирование мешает сопровождению.
+- [ ] Проверить содержимое PyInstaller package и исключить dev-only файлы.
+- [ ] Добавить линтер/форматтер только после согласования минимального набора правил; не запускать массовое форматирование всего репозитория перед релизом.
+- [ ] Провести secret scanning по текущему дереву и отдельно решить вопрос с секретами в Git-истории.
+
+## 6. Проверки CI, известные на момент аудита
+
+- Python checks: успешно на commit `3a6fc5d114e3bf3cefcfe48b4f923761d24d6106` (22.11.2026).
+- Windows preview: успешно на commit `131f91dad5b2d9b9c54255f1098a02934ad96008` (18.11.2026); включал тесты, GUI self-test, PyInstaller build, EXE smoke-test и загрузку артефакта.
+- Эти результаты относятся к указанным commit SHA. Они не доказывают, что новые изменения уборки уже прошли CI.
