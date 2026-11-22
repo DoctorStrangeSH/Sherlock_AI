@@ -54,6 +54,6 @@ def save_desktop_settings(path, settings):
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
-        json.dumps(values, ensure_ascii=False, indent=2) + "\\n",
+        json.dumps(values, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
