@@ -59,12 +59,18 @@ def diagnostics_directory(data_dir: str | Path | None = None) -> Path:
 
 
 def configure_diagnostics(data_dir: str | Path | None = None, *, app_version: str = APP_VERSION):
-    directory = diagnostics_directory(data_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    log_path = directory / LOG_FILENAME
     logger = logging.getLogger("sherlock_ai")
     logger.setLevel(logging.INFO)
     logger.propagate = False
+    directory = diagnostics_directory(data_dir)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Diagnostics must never prevent the assistant from starting.
+        if not logger.handlers:
+            logger.addHandler(logging.NullHandler())
+        return logger, None
+    log_path = directory / LOG_FILENAME
     for handler in tuple(logger.handlers):
         if isinstance(handler, RotatingFileHandler):
             if Path(handler.baseFilename) == log_path.resolve():
