@@ -113,7 +113,6 @@ def describe_current_slot(plan_text, plan_date, at=None):
 
 def shift_saved_schedule(plan_text, plan_date, delay_minutes, today=None):
     """Preview a delayed schedule without changing database records or tasks."""
-    import re
     today = today or datetime.now().date()
     if not isinstance(delay_minutes, int) or isinstance(delay_minutes, bool) or not 5 <= delay_minutes <= 180:
         raise ValueError("Задержка должна быть от 5 до 180 минут.")
@@ -150,7 +149,6 @@ def shift_saved_schedule(plan_text, plan_date, delay_minutes, today=None):
 
 def build_remaining_day_schedule(tasks, available_minutes, now=None):
     """Propose a schedule for the remaining window, without mutating tasks."""
-    from datetime import datetime
     now = now or datetime.now()
     if not isinstance(now, datetime):
         raise ValueError("Некорректное текущее время.")
