@@ -87,6 +87,14 @@ class DesktopTaskManagerTests(unittest.TestCase):
         release.set()
         self.assertTrue(manager.wait_for_all(timeout=1))
 
+    def test_completed_handles_can_be_reaped(self):
+        manager = DesktopTaskManager()
+        task = manager.start("short", lambda *, cancel_event: "done")
+        self.assertTrue(task.wait(1))
+        self.assertEqual(manager.reap(), 1)
+        self.assertIsNone(manager.get(task.task_id))
+        self.assertEqual(manager.snapshot()["completed"], 0)
+
     def test_invalid_task_arguments_are_rejected(self):
         manager = DesktopTaskManager()
         with self.assertRaises(ValueError):
