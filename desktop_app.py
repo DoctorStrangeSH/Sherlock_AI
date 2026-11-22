@@ -61,6 +61,7 @@ class SherlockDesktop:
         self.focus_target_minutes = None
         self.reminder_popup = None
         self.model_config_path = Path(os.getenv("LOCALAPPDATA") or (Path.home() / ".sherlock_ai")) / "SherlockAI" / "desktop_settings.json"
+        self.settings = load_desktop_settings(self.model_config_path)
         self.reminder_tracker = ReminderTracker(self.model_config_path.parent / "shown_reminders.json")
         self.reminders_enabled = tk.BooleanVar(value=self.load_reminders_enabled())
         self.reminder_time = tk.StringVar(value=self.load_reminder_time())
