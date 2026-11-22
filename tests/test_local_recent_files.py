@@ -28,6 +28,21 @@ class RecentFilesTests(unittest.TestCase):
             (folder / "photo.png").write_bytes(b"png")
             self.assertEqual(recent_text_files(folder)["files"], [])
 
+    def test_cancellation_is_checked_during_inventory(self):
+        class CancelAfterChecks:
+            def __init__(self):
+                self.checks = 0
+            def is_set(self):
+                self.checks += 1
+                return self.checks >= 3
+
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            for index in range(5):
+                (folder / f"file{index}.txt").write_text("text", encoding="utf-8")
+            with self.assertRaises(InterruptedError):
+                recent_text_files(folder, cancel_event=CancelAfterChecks())
+
     def test_rejects_non_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
