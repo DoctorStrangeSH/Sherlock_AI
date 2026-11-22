@@ -51,6 +51,7 @@ class SherlockDesktop:
         self.generation_worker = GenerationWorker(self.events)
         self.busy = False
         self.closed = False
+        self.closing = False
         self.workspace_panel = None
         self.full_history = []
         self.selected_file_excerpt = ""
@@ -481,6 +482,13 @@ class SherlockDesktop:
                                      activeforeground=BACKGROUND, relief="flat",
                                      padx=16, font=("Segoe UI", 10, "bold"))
         self.send_button.pack(side="right", padx=(10, 0), fill="y")
+        self.stop_button = tk.Button(
+            compose_row, text="Остановить", command=self.stop_generation,
+            bg="#5b3340", fg="#ffe1e7", activebackground="#754050",
+            activeforeground="#ffffff", relief="flat", padx=12,
+            font=("Segoe UI", 10, "bold"), state="disabled",
+        )
+        self.stop_button.pack(side="right", padx=(8, 0), fill="y")
         self.input.pack(side="left", fill="both", expand=True)
 
         footer = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24, pady=10)
@@ -1640,6 +1648,7 @@ class SherlockDesktop:
         self.started_at = time.monotonic()
         self.activity.configure(text="Sherlock AI формирует ответ · первый запуск модели может занять время", fg=ACCENT)
         self.send_button.configure(state="disabled")
+        self.stop_button.configure(state="normal")
         self.status.configure(text="Sherlock AI думает…")
         self.generation_worker.start(
             question,
@@ -1688,19 +1697,25 @@ class SherlockDesktop:
                 self.display_folder_search(event[1], event[2], event[3])
             elif event[0] == "answer":
                 _, question, answer = event
-                if not self.stream_has_chunks or answer.startswith(("Ошибка генерации", "Локальная модель недоступна", "Не удалось получить ответ")):
-                    if self.stream_has_chunks:
-                        self.append_stream_chunk("\n[Ответ прервался] ")
-                    self.append_stream_chunk(answer)
+                cancelled = answer == "Генерация остановлена пользователем."
+                if cancelled:
+                    self.append_stream_chunk("\n[Генерация остановлена] " if self.stream_has_chunks else answer)
+                else:
+                    if not self.stream_has_chunks or answer.startswith(("Ошибка генерации", "Локальная модель недоступна", "Не удалось получить ответ")):
+                        if self.stream_has_chunks:
+                            self.append_stream_chunk("\n[Ответ прервался] ")
+                        self.append_stream_chunk(answer)
+                    if self.session.record(question, answer):
+                        self.full_history.extend(({"role": "user", "content": question},
+                                                  {"role": "assistant", "content": answer}))
+                        self.full_history = self.full_history[-200:]
                 self.append_stream_chunk("\n\n")
-                if self.session.record(question, answer):
-                    self.full_history.extend(({"role": "user", "content": question},
-                                              {"role": "assistant", "content": answer}))
-                    self.full_history = self.full_history[-200:]
                 self.busy = False
                 self.activity.configure(text="Готов к общению", fg="#98e7c9")
                 self.send_button.configure(state="normal")
-                self.status.configure(text="Ctrl+Enter — отправить · История только в памяти окна")
+                self.stop_button.configure(state="disabled")
+                self.status.configure(text="Генерация остановлена · частичный ответ не сохранён" if cancelled
+                                      else "Ctrl+Enter — отправить · История только в памяти окна")
         if self.busy:
             elapsed = int(time.monotonic() - self.started_at)
             self.activity.configure(text=f"Sherlock AI думает… {elapsed} с · ожидаем ответ локальной модели")
@@ -1749,10 +1764,20 @@ class SherlockDesktop:
         self.chat.configure(state="disabled")
         self.append("Sherlock AI", "Начнём с чистого листа! ✨", "assistant")
 
+    def stop_generation(self) -> None:
+        if not self.busy or self.closed:
+            return
+        if self.generation_worker.cancel():
+            self.stop_button.configure(state="disabled")
+            self.activity.configure(text="Останавливаем генерацию…", fg="#f3c5a5")
+            self.status.configure(text="Закрываем соединение с локальной моделью…")
+
     def close(self) -> None:
+        if self.closing or self.closed:
+            return
         if self.busy and not messagebox.askyesno(
             "Ответ ещё формируется",
-            "Локальная модель ещё отвечает. Закрыть Sherlock AI и прервать ответ?",
+            "Остановить генерацию и закрыть Sherlock AI?",
             parent=self.root,
         ):
             return
@@ -1765,6 +1790,21 @@ class SherlockDesktop:
             return
         if self.workspace_panel is not None and not self.workspace_panel.close():
             return
+        self.closing = True
+        if self.busy:
+            self.stop_generation()
+            self.activity.configure(text="Безопасно завершаем работу…", fg="#f3c5a5")
+            self.root.after(50, self._finish_close_when_idle)
+        else:
+            self._finalize_close()
+
+    def _finish_close_when_idle(self) -> None:
+        if self.generation_worker.is_running:
+            self.root.after(50, self._finish_close_when_idle)
+            return
+        self._finalize_close()
+
+    def _finalize_close(self) -> None:
         self.closed = True
         self.root.destroy()
 
