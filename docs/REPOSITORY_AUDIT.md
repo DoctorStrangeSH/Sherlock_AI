@@ -39,7 +39,16 @@
 - Повторные локальные импорты `datetime.timedelta`, `statistics.median`, `re` и `datetime.datetime` перенесены в единый блок импортов модулей `offline_workspace.py` и `task_scheduler.py`. Поведение функций не менялось.
 - `task_planner.py` и `task_scheduler.py` не объединялись: первый формирует приоритетные списки и блоки дня, второй рассчитывает конкретные временные интервалы. Это разные ответственности.
 
-## 5. Дополнительная декомпозиция desktop\n\n- Настройки desktop вынесены из `desktop_app.py` в `desktop_settings.py`: загрузка, проверка допустимых значений и сохранение теперь не зависят от Tkinter. `SherlockDesktop` сохраняет прежние методы-адаптеры, поэтому существующие callbacks и UI bindings не меняют контракт.\n- Добавлены `tests/test_desktop_settings.py`: проверяют дефолты, повреждённый JSON, неверные значения, round-trip и отсутствие сохранения посторонних ключей.\n\n## 6. Что намеренно НЕ удалено
+## 5. Дополнительная декомпозиция desktop
+
+- Настройки вынесены из `desktop_app.py` в `desktop_settings.py`: загрузка, валидация и сохранение не зависят от Tkinter. Конфигурация загружается до создания Tk-переменных.
+- В `desktop_logic.py` вынесены чистые функции `conversation_title()` и `context_window()`; интерфейс делегирует им выбор заголовка и подготовку ограниченного контекста.
+- Генерация вынесена в `desktop_generation.py`. `GenerationWorker` владеет daemon-потоком, запускает async-функцию локальной модели и отправляет события `chunk`/`answer` в очередь. Worker не импортирует и не вызывает Tkinter.
+- Добавлены тесты для streaming, безопасного fallback при исключении и защиты от одновременного запуска двух запросов.
+- Windows Preview на commit `26df6dc` прошёл все этапы: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и upload.
+- Первоначальный тестовый вариант generation worker содержал синтаксическую ошибку; она исправлена до успешного Python CI на commit `565e48e`.
+
+## 6. Что намеренно НЕ удалено
 
 - Не удалялись отдельные точки входа: у них разные пользовательские сценарии.
 - Не удалялись `tests/test_telegram_network.py` и `tests/test_telegram_mtproto.py`: тесты частично пересекаются по базовым параметрам, но второй покрывает MTProto proxy, secret format и защиту чувствительного payload.
