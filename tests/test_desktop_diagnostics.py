@@ -10,7 +10,8 @@ import threading
 
 from desktop_diagnostics import (
     MAX_LOG_BYTES, configure_diagnostics, install_exception_hooks,
-    redact_sensitive_text, safe_exception_summary, write_support_report,
+    redact_sensitive_text, safe_exception_summary, shutdown_diagnostics,
+    write_support_report,
 )
 
 
@@ -24,9 +25,7 @@ class DesktopDiagnosticsTests(unittest.TestCase):
         sys.excepthook = self.original_sys_hook
         if self.original_thread_hook is not None:
             threading.excepthook = self.original_thread_hook
-        for handler in tuple(self.logger.handlers):
-            self.logger.removeHandler(handler)
-            handler.close()
+        shutdown_diagnostics(self.logger)
 
     def test_redacts_credentials_and_user_paths(self):
         value = ("Authorization: Bearer abc.def.secret api_hash=0123456789abcdef "
@@ -63,6 +62,7 @@ class DesktopDiagnosticsTests(unittest.TestCase):
             self.assertNotIn("secret-value", content)
             self.assertTrue(path.parent.is_dir())
             self.assertTrue(any(isinstance(h, logging.handlers.RotatingFileHandler) for h in logger.handlers))
+            shutdown_diagnostics(logger)
 
     def test_report_contains_only_metadata_and_sanitized_logs(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -91,6 +91,7 @@ class DesktopDiagnosticsTests(unittest.TestCase):
                 handler.flush()
             self.assertLessEqual(path.stat().st_size, MAX_LOG_BYTES)
             self.assertTrue(Path(str(path) + ".1").exists())
+            shutdown_diagnostics(logger)
 
     def test_unavailable_log_storage_does_not_raise(self):
         from unittest.mock import patch
@@ -107,6 +108,7 @@ class DesktopDiagnosticsTests(unittest.TestCase):
             self.assertTrue(callable(sys.excepthook))
             if hasattr(threading, "excepthook"):
                 self.assertTrue(callable(threading.excepthook))
+            shutdown_diagnostics(logger)
 
 
 if __name__ == "__main__":
