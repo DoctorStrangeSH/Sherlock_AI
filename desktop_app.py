@@ -1694,64 +1694,85 @@ class SherlockDesktop:
     def poll(self) -> None:
         if self.closed:
             return
-        while True:
+        for event in self.events.drain(limit=100):
             try:
-                event = self.events.get_nowait()
-            except queue.Empty:
-                break
-            if event[0] == "chunk":
-                self.stream_has_chunks = True
-                self.append_stream_chunk(event[1])
-            elif event[0] == "model":
-                self.model_label.configure(text=event[1])
-                model_ready = len(event) > 2 and bool(event[2])
-                if model_ready:
-                    active_model = self.model_choice.get()
-                    active_model = active_model if active_model != "Авто" else event[1].removeprefix("Модель: ")
-                    self.chat_model_status.configure(
-                        text="● Локальная модель готова · " + active_model,
-                        fg="#98e7c9",
-                    )
-                else:
-                    self.chat_model_status.configure(
-                        text="● Ollama не готова · открой настройки",
-                        fg="#f6b7a2",
-                    )
-                if len(event) > 2:
-                    models = ["Авто"] + event[2]
-                    self.model_picker["values"] = models
-                    if self.model_choice.get() not in models:
-                        self.model_choice.set("Авто")
-                        self.save_model_choice()
-            elif event[0] == "recent_files":
-                self.display_recent_files(event[1], event[2], event[3])
-            elif event[0] == "folder_search":
-                self.display_folder_search(event[1], event[2], event[3])
-            elif event[0] == "answer":
-                _, question, answer = event
-                cancelled = answer == "Генерация остановлена пользователем."
-                if cancelled:
-                    self.append_stream_chunk("\n[Генерация остановлена] " if self.stream_has_chunks else answer)
-                else:
-                    if not self.stream_has_chunks or answer.startswith(("Ошибка генерации", "Локальная модель недоступна", "Не удалось получить ответ")):
-                        if self.stream_has_chunks:
-                            self.append_stream_chunk("\n[Ответ прервался] ")
-                        self.append_stream_chunk(answer)
-                    if self.session.record(question, answer):
-                        self.full_history.extend(({"role": "user", "content": question},
-                                                  {"role": "assistant", "content": answer}))
-                        self.full_history = self.full_history[-200:]
-                self.append_stream_chunk("\n\n")
-                self.busy = False
-                self.activity.configure(text="Готов к общению", fg="#98e7c9")
-                self.send_button.configure(state="normal")
-                self.stop_button.configure(state="disabled")
-                self.status.configure(text="Генерация остановлена · частичный ответ не сохранён" if cancelled
-                                      else "Ctrl+Enter — отправить · История только в памяти окна")
+                if event[0] == "chunk":
+                    self.stream_has_chunks = True
+                    self.append_stream_chunk(event[1])
+                elif event[0] == "model":
+                    self.operations.finish("model_check")
+                    self.model_label.configure(text=event[1])
+                    model_ready = len(event) > 2 and bool(event[2])
+                    if model_ready:
+                        active_model = self.model_choice.get()
+                        active_model = active_model if active_model != "Авто" else event[1].removeprefix("Модель: ")
+                        self.chat_model_status.configure(
+                            text="● Локальная модель готова · " + active_model,
+                            fg="#98e7c9",
+                        )
+                    else:
+                        self.chat_model_status.configure(
+                            text="● Ollama не готова · открой настройки",
+                            fg="#f6b7a2",
+                        )
+                    if len(event) > 2:
+                        models = ["Авто"] + event[2]
+                        self.model_picker["values"] = models
+                        if self.model_choice.get() not in models:
+                            self.model_choice.set("Авто")
+                            self.save_model_choice()
+                elif event[0] == "recent_files":
+                    self.display_recent_files(event[1], event[2], event[3])
+                elif event[0] == "folder_search":
+                    self.display_folder_search(event[1], event[2], event[3])
+                elif event[0] == "answer":
+                    self.operations.finish("generation")
+                    _, question, answer = event
+                    cancelled = answer == "Генерация остановлена пользователем."
+                    if cancelled:
+                        self.append_stream_chunk("\\n[Генерация остановлена] " if self.stream_has_chunks else answer)
+                    else:
+                        if not self.stream_has_chunks or answer.startswith(("Ошибка генерации", "Локальная модель недоступна", "Не удалось получить ответ")):
+                            if self.stream_has_chunks:
+                                self.append_stream_chunk("\\n[Ответ прервался] ")
+                            self.append_stream_chunk(answer)
+                        if self.session.record(question, answer):
+                            self.full_history.extend(({"role": "user", "content": question},
+                                                      {"role": "assistant", "content": answer}))
+                            self.full_history = self.full_history[-200:]
+                    self.append_stream_chunk("\\n\\n")
+                    self.busy = False
+                    self.activity.configure(text="Готов к общению", fg="#98e7c9")
+                    self.send_button.configure(state="normal")
+                    self.stop_button.configure(state="disabled")
+                    self.status.configure(text="Генерация остановлена · частичный ответ не сохранён" if cancelled
+                                          else "Ctrl+Enter — отправить · История только в памяти окна")
+            except Exception:
+                self._handle_event_error(event)
         if self.busy:
             elapsed = int(time.monotonic() - self.started_at)
             self.activity.configure(text=f"Sherlock AI думает… {elapsed} с · ожидаем ответ локальной модели")
         self.root.after(100, self.poll)
+
+    def _handle_event_error(self, event) -> None:
+        """Restore operation state if a UI event handler unexpectedly fails."""
+        kind = event[0] if isinstance(event, tuple) and event else "unknown"
+        if kind == "answer":
+            self.operations.finish("generation")
+            self.busy = False
+            self.send_button.configure(state="normal")
+            self.stop_button.configure(state="disabled")
+            self.activity.configure(text="Не удалось обработать ответ", fg="#f6b7a2")
+        elif kind in {"recent_files", "folder_search"}:
+            self.operations.finish("file_search")
+            self.searching = False
+            self.search_button.configure(state="normal")
+            self.recent_button.configure(state="normal")
+            self.search_details.configure(text="Не удалось обработать результат. Повтори операцию.")
+        elif kind == "model":
+            self.operations.finish("model_check")
+            self.chat_model_status.configure(text="● Не удалось проверить Ollama", fg="#f6b7a2")
+        self.status.configure(text="Произошла внутренняя ошибка обработки события. Можно продолжить работу.")
 
     def save_conversation(self) -> None:
         if self.busy:
@@ -1838,6 +1859,7 @@ class SherlockDesktop:
 
     def _finalize_close(self) -> None:
         self.closed = True
+        self.events.close()
         self.root.destroy()
 
 
