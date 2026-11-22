@@ -40,6 +40,12 @@ class DesktopDiagnosticsTests(unittest.TestCase):
         value = "failed for token 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
         self.assertNotIn("123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi", redact_sensitive_text(value))
 
+    def test_os_errors_do_not_expose_private_paths(self):
+        summary = safe_exception_summary(FileNotFoundError("missing C:\\Users\\Alice\\Private\\taxes.pdf"))
+        self.assertIn("FileNotFoundError", summary)
+        self.assertNotIn("Alice", summary)
+        self.assertNotIn("taxes.pdf", summary)
+
     def test_exception_summary_has_no_traceback(self):
         summary = safe_exception_summary(ValueError("api_key=secret-value"))
         self.assertIn("ValueError", summary)
@@ -85,6 +91,14 @@ class DesktopDiagnosticsTests(unittest.TestCase):
                 handler.flush()
             self.assertLessEqual(path.stat().st_size, MAX_LOG_BYTES)
             self.assertTrue(Path(str(path) + ".1").exists())
+
+    def test_unavailable_log_storage_does_not_raise(self):
+        from unittest.mock import patch
+        with patch("desktop_diagnostics.diagnostics_directory", return_value=Path("blocked")):
+            with patch.object(Path, "mkdir", side_effect=PermissionError("denied")):
+                logger, log_path = configure_diagnostics()
+        self.assertIsNone(log_path)
+        self.assertTrue(logger.handlers)
 
     def test_exception_hooks_can_be_installed(self):
         with tempfile.TemporaryDirectory() as temp:
