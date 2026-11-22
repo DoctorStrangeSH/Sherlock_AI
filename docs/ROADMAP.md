@@ -65,7 +65,7 @@
 - [x] Windows Preview на commit `4a67a9f`: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
 - [x] Локальный поиск и список недавних файлов получили cancellation checkpoints внутри обхода каталогов; отмена больше не ждёт завершения всего сканирования.
 - [x] Python CI после добавления cancellation checkpoints: 156 тестов PASS на commit `f7b26e8`.
-- [ ] Windows Preview для cancellation checkpoints — выполняется (run `44996109182`).
+- [x] Windows Preview для cancellation checkpoints на commit `25d98a7`: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
 - [ ] Проверить реальную отмену активного запроса на Ollama под Windows.
 - [ ] Проверить установку/запуск на чистой Windows без Python.
 - [ ] Проверить масштабирование интерфейса и минимальное разрешение экрана.
