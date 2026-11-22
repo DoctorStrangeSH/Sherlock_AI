@@ -1818,12 +1818,7 @@ class SherlockDesktop:
 
     def _handle_event_error(self, event, error=None) -> None:
         """Restore operation state if a UI event handler unexpectedly fails."""
-        if error is not None:
-            self.logger.error(
-                "UI event recovery · event=%s · %s",
-                event[0] if isinstance(event, tuple) and event else "unknown",
-                safe_exception_summary(error),
-            )
+
         kind = event[0] if isinstance(event, tuple) and event else "unknown"
         if kind == "answer":
             self.operations.finish("generation")
