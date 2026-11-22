@@ -32,6 +32,11 @@ from desktop_settings import load_desktop_settings, save_desktop_settings
 from desktop_generation import GenerationWorker
 from desktop_events import DesktopEventBus, OperationRegistry
 from desktop_tasks import DesktopTaskManager
+from desktop_diagnostics import (
+    configure_diagnostics, install_exception_hooks, safe_exception_summary,
+    write_support_report,
+)
+import logging
 from local_ai import selected_model, installed_models
 
 
@@ -45,8 +50,11 @@ TONES = {"Тёплый": "warm", "Краткий": "concise", "Деловой": 
 
 
 class SherlockDesktop:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, diagnostics_log_path=None):
         self.root = root
+        self.logger = logging.getLogger("sherlock_ai")
+        self.diagnostics_log_path = Path(diagnostics_log_path) if diagnostics_log_path else None
+        self.root.report_callback_exception = self._report_tk_exception
         self.session = ConversationSession()
         self.events = DesktopEventBus()
         self.operations = OperationRegistry()
@@ -438,6 +446,19 @@ class SherlockDesktop:
                       "Анализ файлов запускается только по твоему выбору.",
                  bg=SURFACE, fg="#a9f6ce", justify="left", wraplength=590,
                  font=("Segoe UI", 9)).pack(anchor="w")
+        tk.Button(
+            privacy_card, text="Сохранить диагностический отчёт",
+            command=self.export_diagnostics, bg=INPUT, fg=TEXT,
+            activebackground=ACCENT, activeforeground=BACKGROUND,
+            relief="flat", padx=12, pady=8,
+        ).pack(anchor="w", pady=(12, 0))
+        tk.Label(
+            privacy_card,
+            text="Отчёт содержит технические сведения и очищенные журналы. "
+                 "Переписки, запросы и ответы модели в него не входят.",
+            bg=SURFACE, fg=MUTED, justify="left", wraplength=590,
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(8, 0))
 
         chat_heading = tk.Frame(self.chat_page, bg=BACKGROUND, padx=24, pady=12)
         chat_heading.pack(fill="x")
@@ -1265,7 +1286,8 @@ class SherlockDesktop:
         }
         try:
             save_desktop_settings(self.model_config_path, self.settings)
-        except OSError:
+        except OSError as exc:
+            self.logger.error("Could not save desktop settings · %s", safe_exception_summary(exc))
             self.status.configure(text="Не удалось сохранить настройки приложения.")
 
     def append_stream_start(self) -> None:
@@ -1287,8 +1309,9 @@ class SherlockDesktop:
             if cancel_event is not None and cancel_event.is_set():
                 return
             self.events.publish("model", "Модель: " + result, models)
-        except Exception:
+        except Exception as exc:
             if cancel_event is None or not cancel_event.is_set():
+                self.logger.warning("Ollama health check failed · %s", safe_exception_summary(exc))
                 self.events.publish("model", "Ollama не готова · проверь установку и модель")
 
     def send_event(self, event) -> str:
@@ -1761,16 +1784,25 @@ class SherlockDesktop:
                     self.stop_button.configure(state="disabled")
                     self.status.configure(text="Генерация остановлена · частичный ответ не сохранён" if cancelled
                                           else "Ctrl+Enter — отправить · История только в памяти окна")
-            except Exception:
-                self._handle_event_error(event)
+            except Exception as exc:
+                self.logger.error(
+                    "UI event handler failed · event=%s · %s",
+                    event[0] if isinstance(event, tuple) and event else "unknown",
+                    safe_exception_summary(exc),
+                )
+                self._handle_event_error(event, exc)
         if self.busy:
             elapsed = int(time.monotonic() - self.started_at)
             self.activity.configure(text=f"Sherlock AI думает… {elapsed} с · ожидаем ответ локальной модели")
         self.root.after(100, self.poll)
 
     def _on_background_task_error(self, task, error) -> None:
-        """Worker-thread callback: report through the UI event bus only."""
-        self.events.publish("task_error", task.name, str(error)[:240] or "Неизвестная ошибка.")
+        """Worker-thread callback: log a sanitized summary and notify the UI."""
+        self.logger.error(
+            "Background task failed · task=%s · %s",
+            task.name, safe_exception_summary(error),
+        )
+        self.events.publish("task_error", task.name, safe_exception_summary(error))
 
     def _handle_background_task_error(self, task_name: str, message: str) -> None:
         if task_name == "model-check":
@@ -1784,8 +1816,14 @@ class SherlockDesktop:
             self.search_details.configure(text="Фоновая задача завершилась с ошибкой: " + message)
         self.status.configure(text="Фоновая задача завершилась с ошибкой. Можно повторить операцию.")
 
-    def _handle_event_error(self, event) -> None:
+    def _handle_event_error(self, event, error=None) -> None:
         """Restore operation state if a UI event handler unexpectedly fails."""
+        if error is not None:
+            self.logger.error(
+                "UI event recovery · event=%s · %s",
+                event[0] if isinstance(event, tuple) and event else "unknown",
+                safe_exception_summary(error),
+            )
         kind = event[0] if isinstance(event, tuple) and event else "unknown"
         if kind == "answer":
             self.operations.finish("generation")
@@ -1804,6 +1842,49 @@ class SherlockDesktop:
             self.chat_model_status.configure(text="● Не удалось проверить Ollama", fg="#f6b7a2")
         self.status.configure(text="Произошла внутренняя ошибка обработки события. Можно продолжить работу.")
 
+    def _report_tk_exception(self, exc_type, exc_value, _traceback) -> None:
+        """Tkinter callback exception hook; never log widget contents or locals."""
+        self.logger.error(
+            "Tk callback failed · %s",
+            safe_exception_summary(exc_value),
+        )
+        if not self.closed and not self.closing:
+            try:
+                self.status.configure(text="Внутренняя ошибка интерфейса записана в журнал.")
+            except tk.TclError:
+                pass
+
+    def export_diagnostics(self) -> None:
+        """Let the user explicitly choose where to save a sanitized support report."""
+        if self.diagnostics_log_path is None:
+            self.status.configure(text="Журнал диагностики пока недоступен.")
+            return
+        destination = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Сохранить диагностический отчёт",
+            defaultextension=".json",
+            initialfile="SherlockAI-diagnostics.json",
+            filetypes=[("Отчёт диагностики", "*.json")],
+        )
+        if not destination:
+            return
+        try:
+            report_path = write_support_report(destination, self.diagnostics_log_path)
+        except (OSError, ValueError) as exc:
+            self.logger.error("Could not export diagnostics · %s", safe_exception_summary(exc))
+            messagebox.showerror(
+                "Не удалось сохранить отчёт",
+                "Проверь доступ к выбранной папке и попробуй ещё раз.",
+                parent=self.root,
+            )
+            return
+        self.status.configure(text="Диагностический отчёт сохранён.")
+        messagebox.showinfo(
+            "Отчёт готов",
+            "Отчёт сохранён. Перед отправкой проверь его содержимое.",
+            parent=self.root,
+        )
+
     def save_conversation(self) -> None:
         if self.busy:
             self.status.configure(text="Дождись завершения ответа перед сохранением.")
@@ -1818,7 +1899,8 @@ class SherlockDesktop:
             if self.workspace_panel is not None:
                 self.workspace_panel.refresh()
             self.status.configure(text="Диалог сохранён локально · открыть можно в разделе «История»")
-        except (OSError, sqlite3.Error, ValueError):
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            self.logger.error("Could not save conversation · %s", safe_exception_summary(exc))
             self.status.configure(text="Не удалось сохранить диалог.")
 
     def open_conversation(self, messages: list[dict[str, str]]) -> None:
@@ -2224,9 +2306,18 @@ def run_gui_self_test() -> int:
 
 
 def main() -> None:
-    root = tk.Tk()
-    SherlockDesktop(root)
-    root.mainloop()
+    logger, log_path = configure_diagnostics()
+    install_exception_hooks(logger)
+    logger.info("Desktop application starting")
+    try:
+        root = tk.Tk()
+        SherlockDesktop(root, diagnostics_log_path=log_path)
+        root.mainloop()
+    except Exception as exc:
+        logger.error("Desktop startup or main loop failed · %s", safe_exception_summary(exc))
+        raise
+    finally:
+        logger.info("Desktop application stopped")
 
 
 if __name__ == "__main__":
