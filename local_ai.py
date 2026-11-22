@@ -13,6 +13,10 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 from personality import build_system_prompt
 from model_selection import choose_model
 
+class GenerationCancelled(Exception):
+    """Raised when a local model request is cancelled by the user."""
+
+
 PERFORMANCE_PROFILES = {
     "Быстро": {"history": 6, "num_predict": 160, "num_ctx": 2048},
     "Баланс": {"history": 12, "num_predict": 320, "num_ctx": 4096},
@@ -34,7 +38,9 @@ def selected_model():
     return choose_model(installed_models(), OLLAMA_MODEL)
 
 
-def _request(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None, performance="Баланс") -> str:
+def _request(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None, performance="Баланс", cancel_event=None, on_response=None) -> str:
+    if cancel_event is not None and cancel_event.is_set():
+        raise GenerationCancelled("Generation cancelled.")
     profile = PERFORMANCE_PROFILES.get(performance, PERFORMANCE_PROFILES["Баланс"])
     safe_history = [m for m in (history or [])[-profile["history"]:] if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
     notes = [str(fact)[:500] for fact in (facts or [])[:50]]
@@ -66,11 +72,19 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None, m
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=90) as response:
+        if on_response is not None:
+            on_response(response)
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelled("Generation cancelled.")
         if on_chunk is None:
             data = json.load(response)
+            if cancel_event is not None and cancel_event.is_set():
+                raise GenerationCancelled("Generation cancelled.")
             return data.get("message", {}).get("content", "").strip() or "Модель вернула пустой ответ."
         parts = []
         for line in response:
+            if cancel_event is not None and cancel_event.is_set():
+                raise GenerationCancelled("Generation cancelled.")
             if not line.strip():
                 continue
             item = json.loads(line)
@@ -84,17 +98,21 @@ def _request(question: str, history=None, facts=None, tone="warm", tasks=None, m
                 break
         return "".join(parts).strip() or "Модель вернула пустой ответ."
 
-async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None, performance="Баланс") -> str:
+async def ask_local_ai(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None, performance="Баланс", cancel_event=None, on_response=None) -> str:
     if not question.strip():
         return "Напиши вопрос после .ask"
     if len(question) > 4000:
         return "Слишком длинный запрос (максимум 4000 символов)."
     try:
-        return await asyncio.to_thread(_request, question, history, facts, tone, tasks, model, on_chunk, performance)
+        return await asyncio.to_thread(_request, question, history, facts, tone, tasks, model, on_chunk, performance, cancel_event, on_response)
+    except GenerationCancelled:
+        raise
     except RuntimeError as exc:
         return "Ошибка генерации Ollama: " + str(exc)[:300]
     except ValueError as exc:
         return "Локальная модель недоступна. " + str(exc)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelled("Generation cancelled.") from exc
         return ("Локальная модель недоступна. Запусти Ollama и скачай модель: "
                 "`ollama pull qwen3:8b`. Проверь OLLAMA_URL и OLLAMA_MODEL.")
