@@ -29,7 +29,7 @@ from focus_session import FocusSession
 from task_planner import build_task_plan, build_day_parts, build_time_budget_plan
 from task_scheduler import build_timed_schedule, describe_current_slot, shift_saved_schedule, build_remaining_day_schedule
 from task_reminders import ReminderTracker, valid_reminder_time
-from desktop_logic import ConversationSession
+from desktop_logic import ConversationSession, context_window, conversation_title
 from local_ai import ask_local_ai, selected_model, installed_models
 
 
@@ -1714,7 +1714,7 @@ class SherlockDesktop:
         if not self.full_history:
             self.status.configure(text="Пока нет завершённых сообщений для сохранения.")
             return
-        title = next((m["content"][:70] for m in self.full_history if m["role"] == "user"), "Диалог")
+        title = conversation_title(self.full_history)
         try:
             with OfflineWorkspace() as workspace:
                 workspace.save_conversation(title, self.full_history)
@@ -1729,7 +1729,7 @@ class SherlockDesktop:
             self.status.configure(text="Дождись ответа перед открытием другого диалога.")
             return
         self.full_history = [dict(item) for item in messages]
-        self.session.history = [dict(item) for item in messages[-12:]]
+        self.session.history = context_window(messages)
         self.chat.configure(state="normal")
         self.chat.delete("1.0", "end")
         self.chat.configure(state="disabled")
