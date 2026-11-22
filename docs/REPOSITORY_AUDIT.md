@@ -73,7 +73,7 @@
 - `search_text_folder()` и `recent_text_files()` принимают cancellation event и проверяют его между каталогами и файлами; worker не публикует ошибку отмены как пользовательский сбой.
 - Добавлены тесты, подтверждающие остановку файлового обхода на промежуточном checkpoint.
 - Python CI на commit `f7b26e8` прошёл 156 тестов, включая проверки остановки обхода файлов между элементами.
-- Windows Preview для commit `25d98a7` запущен; результат сборки EXE и smoke-test ожидается.
+- Windows Preview на commit `25d98a7` завершился PASS: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload.
 - Python CI на commit `4a67a9f` прошёл 154 теста. Windows Preview на том же commit завершил Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
 
 ## 8. Что намеренно НЕ удалено
