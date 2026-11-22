@@ -52,6 +52,10 @@ class DesktopTaskManager:
         with self._lock:
             if self._shutting_down:
                 raise RuntimeError("Task manager is shutting down.")
+            # Finished handles are no longer needed by the UI; reap them before
+            # accepting another task so long sessions cannot grow this registry.
+            self._tasks = {key: task for key, task in self._tasks.items()
+                           if not task.done_event.is_set()}
             handle = TaskHandle(self._next_id, name)
             self._next_id += 1
 
@@ -83,6 +87,14 @@ class DesktopTaskManager:
                 self._tasks.pop(handle.task_id, None)
                 raise
             return handle
+
+    def reap(self) -> int:
+        """Remove completed task handles and return the number removed."""
+        with self._lock:
+            finished = [key for key, task in self._tasks.items() if task.done_event.is_set()]
+            for key in finished:
+                self._tasks.pop(key, None)
+            return len(finished)
 
     def get(self, task_id: int) -> TaskHandle | None:
         with self._lock:
