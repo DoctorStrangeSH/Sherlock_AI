@@ -1,9 +1,11 @@
 """Regression tests for local Ollama streaming and performance profiles."""
 import json
+import threading
 import unittest
 from unittest.mock import patch
 
 import local_ai
+from local_ai import GenerationCancelled
 
 
 class FakeResponse:
@@ -39,6 +41,34 @@ class LocalAiStreamingTests(unittest.TestCase):
         self.assertFalse(payload["think"])
         self.assertEqual(payload["options"]["num_predict"], 160)
         self.assertEqual(payload["options"]["num_ctx"], 2048)
+
+    def test_request_cancelled_after_response_is_attached(self):
+        cancel_event = threading.Event()
+        captured = []
+
+        def cancel_on_response(response):
+            captured.append(response)
+            cancel_event.set()
+
+        chunks = [b'{"message":{"content":"must not be read"},"done":false}\\n']
+        with patch.object(local_ai.urllib.request, "urlopen", return_value=FakeResponse(chunks)):
+            with self.assertRaises(GenerationCancelled):
+                local_ai._request(
+                    "Hi",
+                    model="qwen3:1.7b",
+                    on_chunk=lambda _chunk: self.fail("cancelled response must not stream"),
+                    cancel_event=cancel_event,
+                    on_response=cancel_on_response,
+                )
+        self.assertEqual(len(captured), 1)
+
+    def test_request_cancelled_before_network_access(self):
+        cancel_event = threading.Event()
+        cancel_event.set()
+        with patch.object(local_ai.urllib.request, "urlopen") as urlopen:
+            with self.assertRaises(GenerationCancelled):
+                local_ai._request("Hi", model="qwen3:1.7b", cancel_event=cancel_event)
+        urlopen.assert_not_called()
 
     def test_profile_falls_back_to_balanced(self):
         response = FakeResponse([])
