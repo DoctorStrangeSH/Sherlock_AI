@@ -31,6 +31,7 @@ from task_reminders import ReminderTracker, valid_reminder_time
 from desktop_logic import ConversationSession, context_window, conversation_title
 from desktop_settings import load_desktop_settings, save_desktop_settings
 from desktop_generation import GenerationWorker
+from desktop_events import DesktopEventBus, OperationRegistry
 from local_ai import selected_model, installed_models
 
 
@@ -47,7 +48,8 @@ class SherlockDesktop:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.session = ConversationSession()
-        self.events = queue.Queue()
+        self.events = DesktopEventBus()
+        self.operations = OperationRegistry()
         self.generation_worker = GenerationWorker(self.events)
         self.busy = False
         self.closed = False
@@ -508,7 +510,8 @@ class SherlockDesktop:
         self.root.after(60_000, self.check_reminders)
         self.root.after(60_000, self.tick_day_page)
         self.root.after(1000, self.tick_focus)
-        threading.Thread(target=self.check_model, daemon=True).start()
+        self.operations.begin("model_check")
+        threading.Thread(target=self.check_model, daemon=True, name="sherlock-model-check").start()
         self.input.focus_set()
         self.root.bind("<Configure>", self.on_window_resize)
         self.root.bind_all("<MouseWheel>", self.on_mouse_wheel, add="+")
@@ -693,11 +696,20 @@ class SherlockDesktop:
             self.search_details.configure(text="Введите запрос длиной от 1 до 120 символов.")
             return
         self.searching = True
+        self.operations.begin("file_search")
         self.search_button.configure(state="disabled")
         self.recent_button.configure(state="disabled")
         self.search_details.configure(text="Ищу в выбранной папке…")
-        threading.Thread(target=self.search_folder_worker,
-                         args=(self.search_folder, query, command_question), daemon=True).start()
+        try:
+            threading.Thread(target=self.search_folder_worker,
+                             args=(self.search_folder, query, command_question),
+                             daemon=True, name="sherlock-folder-search").start()
+        except RuntimeError:
+            self.operations.finish("file_search")
+            self.searching = False
+            self.search_button.configure(state="normal")
+            self.recent_button.configure(state="normal")
+            self.search_details.configure(text="Не удалось запустить поиск. Попробуй ещё раз.")
 
     def start_recent_files(self, command_question=None) -> None:
         if self.searching or self.closed:
@@ -706,20 +718,30 @@ class SherlockDesktop:
             self.search_details.configure(text="Сначала выбери папку.")
             return
         self.searching = True
+        self.operations.begin("file_search")
         self.search_button.configure(state="disabled")
         self.recent_button.configure(state="disabled")
         self.search_details.configure(text="Проверяю даты изменения файлов…")
-        threading.Thread(target=self.recent_files_worker,
-                         args=(self.search_folder, command_question), daemon=True).start()
+        try:
+            threading.Thread(target=self.recent_files_worker,
+                             args=(self.search_folder, command_question),
+                             daemon=True, name="sherlock-recent-files").start()
+        except RuntimeError:
+            self.operations.finish("file_search")
+            self.searching = False
+            self.search_button.configure(state="normal")
+            self.recent_button.configure(state="normal")
+            self.search_details.configure(text="Не удалось запустить проверку файлов. Попробуй ещё раз.")
 
     def recent_files_worker(self, folder: str, question=None) -> None:
         try:
             result = recent_text_files(folder)
             self.events.put(("recent_files", result, None, question))
-        except (OSError, ValueError) as exc:
-            self.events.put(("recent_files", None, str(exc), question))
+        except Exception as exc:
+            self.events.put(("recent_files", None, str(exc) or "Неизвестная ошибка.", question))
 
     def display_recent_files(self, result, error, question=None) -> None:
+        self.operations.finish("file_search")
         self.searching = False
         self.search_button.configure(state="normal")
         self.recent_button.configure(state="normal")
@@ -743,10 +765,11 @@ class SherlockDesktop:
         try:
             result = search_text_folder(folder, query)
             self.events.put(("folder_search", result, None, question))
-        except (OSError, ValueError) as exc:
-            self.events.put(("folder_search", None, str(exc), question))
+        except Exception as exc:
+            self.events.put(("folder_search", None, str(exc) or "Неизвестная ошибка.", question))
 
     def display_folder_search(self, result, error, question=None) -> None:
+        self.operations.finish("file_search")
         self.searching = False
         self.search_button.configure(state="normal")
         self.recent_button.configure(state="normal")
@@ -1252,9 +1275,9 @@ class SherlockDesktop:
         try:
             result = selected_model()
             models = installed_models()
-            self.events.put(("model", "Модель: " + result, models))
+            self.events.publish("model", "Модель: " + result, models)
         except Exception:
-            self.events.put(("model", "Ollama не готова · проверь установку и модель"))
+            self.events.publish("model", "Ollama не готова · проверь установку и модель")
 
     def send_event(self, event) -> str:
         self.send()
@@ -1650,14 +1673,23 @@ class SherlockDesktop:
         self.send_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
         self.status.configure(text="Sherlock AI думает…")
-        self.generation_worker.start(
-            question,
-            history,
-            tone,
-            None if model == "Авто" else model,
-            self.performance.get(),
-            facts,
-        )
+        self.operations.begin("generation")
+        try:
+            self.generation_worker.start(
+                question,
+                history,
+                tone,
+                None if model == "Авто" else model,
+                self.performance.get(),
+                facts,
+            )
+        except Exception:
+            self.operations.finish("generation")
+            self.busy = False
+            self.send_button.configure(state="normal")
+            self.stop_button.configure(state="disabled")
+            self.activity.configure(text="Не удалось запустить генерацию", fg="#f6b7a2")
+            self.status.configure(text="Не удалось запустить локальную модель. Попробуй ещё раз.")
 
     def poll(self) -> None:
         if self.closed:
