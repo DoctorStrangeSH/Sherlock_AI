@@ -8,7 +8,7 @@ from telegram_network import telegram_client_options, parse_env_bool
 from telegram_setup import delivery_hint
 
 
-class TelegramNetworkTests(unittest.TestCase):
+class TelegramMtprotoTests(unittest.TestCase):
     def test_boolean_values(self):
         self.assertTrue(parse_env_bool("YES"))
         self.assertFalse(parse_env_bool("false"))
