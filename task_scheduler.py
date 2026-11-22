@@ -1,5 +1,6 @@
 """Pure local time-block scheduling using explicit task estimates only."""
-from datetime import date
+from datetime import date, datetime
+import re
 
 from task_overview import describe_task
 
@@ -67,8 +68,6 @@ def build_timed_schedule(tasks, start_time, available_minutes, break_minutes=10,
 
 def describe_current_slot(plan_text, plan_date, at=None):
     """Read the current time block from a generated schedule; no task writes."""
-    import re
-    from datetime import datetime
 
     if not isinstance(plan_text, str) or not isinstance(plan_date, str):
         raise ValueError("Некорректное расписание.")
@@ -115,7 +114,6 @@ def describe_current_slot(plan_text, plan_date, at=None):
 def shift_saved_schedule(plan_text, plan_date, delay_minutes, today=None):
     """Preview a delayed schedule without changing database records or tasks."""
     import re
-    from datetime import datetime
     today = today or datetime.now().date()
     if not isinstance(delay_minutes, int) or isinstance(delay_minutes, bool) or not 5 <= delay_minutes <= 180:
         raise ValueError("Задержка должна быть от 5 до 180 минут.")
