@@ -90,6 +90,8 @@
 - [x] Недоступность хранилища журналов не блокирует запуск Sherlock AI.
 - [x] File handlers явно закрываются при завершении приложения; Windows temp/rotation tests больше не оставляют занятые файлы.
 - [x] Добавлен тихий режим при отсутствии настроенного logger: тесты и standalone worker не печатают диагностические ошибки в консоль.
+- [x] Python CI: 166 тестов PASS на commit `c9ffd24`.
+- [x] Windows Preview на commit `89833cd`: Python tests, GUI self-test, PyInstaller build, EXE verification, packaged smoke-test и artifact upload — PASS.
 - [ ] Проверить экспорт и содержимое отчёта вручную на Windows.
 
 ## Фаза 3 — Локальный ИИ и рабочие функции
