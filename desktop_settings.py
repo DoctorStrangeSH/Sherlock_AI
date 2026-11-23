@@ -57,3 +57,14 @@ def save_desktop_settings(path, settings):
         json.dumps(values, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def desktop_window_metrics(screen_width, screen_height):
+    """Return a usable initial and minimum window size for the available screen."""
+    width = max(1, int(screen_width))
+    height = max(1, int(screen_height))
+    min_width = max(480, min(760, width - 40))
+    min_height = max(420, min(550, height - 80))
+    initial_width = max(min_width, min(1120, width - 40))
+    initial_height = max(min_height, min(760, height - 90))
+    return (initial_width, initial_height), (min_width, min_height)
