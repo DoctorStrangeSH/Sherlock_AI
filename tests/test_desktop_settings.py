@@ -30,7 +30,7 @@ class DesktopSettingsTests(unittest.TestCase):
 
         initial, minimum = workspace_window_metrics(640, 480)
         self.assertEqual(minimum, (580, 400))
-        self.assertEqual(initial, (600, 390))
+        self.assertEqual(initial, (600, 400))
         self.assertGreaterEqual(initial[0], minimum[0])
         self.assertGreaterEqual(initial[1], minimum[1])
 
