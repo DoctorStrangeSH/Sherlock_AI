@@ -10,6 +10,15 @@ from database import db
 from filters import smart_filter
 from analytics import analytics
 from security import security
+from scheduler import Scheduler
+from local_ai import ask_local_ai
+from assistant_access import is_saved_messages_owner
+from reply_drafts import can_prepare_draft, draft_question, display_draft
+from draft_queue import DraftQueue
+from conversation_context import RecentChatContext
+from contact_style import setting_key, validated_style, DEFAULT_STYLE
+from style_examples import add_example, delete_example, valid_examples
+from telegram_network import telegram_client_options
 
 # Логирование
 logging.basicConfig(
@@ -19,12 +28,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH, **telegram_client_options())
 
 # Состояние
 is_online = False
-current_mode = "normal"
-FILTER_MODE = "all"
+current_mode = db.get_setting("current_mode", "normal")
+FILTER_MODE = db.get_setting("filter_mode", FILTER_MODE)
+is_online = db.get_setting("is_online", False)
+ai_dialogue_lock = asyncio.Lock()
+pending_reply_drafts = DraftQueue()
+recent_chat_context = RecentChatContext()
 
 def get_time():
     return datetime.now(MOSCOW_TZ)
@@ -79,7 +92,7 @@ async def send_to_topic(topic_id, message):
 
 # === КОМАНДЫ (без кнопок) ===
 
-@client.on(events.NewMessage(pattern=r'\.menu'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.menu'))
 async def show_menu(event):
     menu_text = """🎛 **МЕНЮ**
 
@@ -109,7 +122,7 @@ async def show_menu(event):
     
     await event.reply(menu_text)
 
-@client.on(events.NewMessage(pattern=r'\.mode'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.mode'))
 async def set_mode(event):
     global current_mode
     
@@ -127,19 +140,19 @@ async def set_mode(event):
     else:
         await event.reply('Доступные режимы:\n.mode normal\n.mode busy\n.mode sleeping\n.mode meeting')
 
-@client.on(events.NewMessage(pattern=r'\.online'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.online'))
 async def set_online(event):
     global is_online
     is_online = True
     await event.reply('✅ Онлайн!')
 
-@client.on(events.NewMessage(pattern=r'\.offline'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.offline'))
 async def set_offline(event):
     global is_online
     is_online = False
     await event.reply('🌙 Оффлайн!')
 
-@client.on(events.NewMessage(pattern=r'\.status'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.status'))
 async def check_status(event):
     status = "Онлайн" if is_online else "Оффлайн"
     mode_names = {"normal": "😊 Обычный", "busy": "😤 Занят", "sleeping": "😴 Сплю", "meeting": "🤝 Встреча"}
@@ -154,7 +167,7 @@ async def check_status(event):
     
     await event.reply(text)
 
-@client.on(events.NewMessage(pattern=r'\.help'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.help'))
 async def help_cmd(event):
     help_text = """📋 **ВСЕ КОМАНДЫ**
 
@@ -184,7 +197,7 @@ async def help_cmd(event):
     
     await event.reply(help_text)
 
-@client.on(events.NewMessage(pattern=r'\.db'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.db'))
 async def check_db(event):
     """Проверка базы данных"""
     try:
@@ -205,7 +218,7 @@ async def check_db(event):
     except Exception as e:
         await event.reply(f'❌ Ошибка БД: {e}')
 
-@client.on(events.NewMessage(pattern=r'\.filter'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.filter'))
 async def change_filter(event):
     global FILTER_MODE
     
@@ -217,7 +230,7 @@ async def change_filter(event):
     else:
         await event.reply(f'Текущий фильтр: {FILTER_MODE}\n\nДля смены:\n.filter all — все\n.filter bot_only — только с ботом\n.filter whitelist — белый список')
 
-@client.on(events.NewMessage(pattern=r'\.stats'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.stats'))
 async def show_stats(event):
     top_users = db.get_top_users(10)
     total_messages = db.get_total_messages()
@@ -229,12 +242,12 @@ async def show_stats(event):
     await send_to_topic(TOPIC_STATS, stats_text)
     await event.reply('📊 Отправлено в тему "Статистика"!')
 
-@client.on(events.NewMessage(pattern=r'\.analytics'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.analytics'))
 async def show_analytics(event):
     report = analytics.generate_report()
     await event.reply(report)
 
-@client.on(events.NewMessage(pattern=r'\.remind'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.remind'))
 async def set_reminder(event):
     text = event.text.replace('.remind', '').strip()
     parts = text.split(' ', 1)
@@ -249,25 +262,38 @@ async def set_reminder(event):
         except ValueError:
             await event.reply('Формат: .remind минуты текст')
 
-@client.on(events.NewMessage(pattern=r'\.addwhite'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.addwhite'))
 async def add_white(event):
     if event.reply_to_msg_id:
         reply_msg = await event.get_reply_message()
+        db.add_user(reply_msg.sender_id, (await reply_msg.get_sender()).first_name or "Пользователь")
         db.set_white(reply_msg.sender_id, True)
         sender = await reply_msg.get_sender()
         await event.reply(f'✅ {sender.first_name} в белом списке!')
     else:
         await event.reply('Ответьте на сообщение командой .addwhite')
 
-@client.on(events.NewMessage(pattern=r'\.addblack'))
+@client.on(events.NewMessage(outgoing=True, pattern=r'\.addblack'))
 async def add_black(event):
     if event.reply_to_msg_id:
         reply_msg = await event.get_reply_message()
+        db.add_user(reply_msg.sender_id, (await reply_msg.get_sender()).first_name or "Пользователь")
         db.set_black(reply_msg.sender_id, True)
         sender = await reply_msg.get_sender()
         await event.reply(f'🚫 {sender.first_name} в чёрном списке!')
     else:
         await event.reply('Ответьте на сообщение командой .addblack')
+
+# Capture only the owner's own messages to explicitly permitted private contacts.
+# No Telegram history fetch; no persistent storage; never mix contact contexts.
+@client.on(events.NewMessage(outgoing=True))
+async def remember_owner_private_reply(event):
+    if not (db.get_setting("reply_drafts_enabled", False) and event.is_private):
+        return
+    peer_id = event.chat_id
+    if peer_id != OWNER_ID and peer_id in db.get_white_list():
+        recent_chat_context.add(peer_id, "owner", event.raw_text)
+
 
 # === ОСНОВНОЙ ОБРАБОТЧИК ===
 
@@ -300,6 +326,43 @@ async def handle_messages(event):
     db.add_user(sender_id, sender_name)
     db.add_message(sender_id, event.text)
     
+    # Черновики включаются владельцем и только для контактов из белого списка.
+    # При активном режиме для этих контактов не отправляем старый автоответ.
+    if can_prepare_draft(
+        enabled=db.get_setting("reply_drafts_enabled", False),
+        private=event.is_private, outgoing=event.out,
+        sender_id=sender_id, owner_id=OWNER_ID,
+        allowed_ids=set(db.get_white_list()), text=event.raw_text,
+    ):
+        previous = recent_chat_context.recent(sender_id)
+        recent_chat_context.add(sender_id, "contact", event.raw_text)
+        tone = db.get_setting(setting_key(sender_id), DEFAULT_STYLE)
+        samples = db.get_setting("draft_owner_style_examples", [])
+        question = draft_question(event.raw_text, sender_name, previous, style=tone, examples=samples)
+        suggestion = await ask_local_ai(question, tone=tone)
+        if (not suggestion.startswith(("Локальная модель недоступна.", "Слишком длинный запрос"))
+                and db.get_setting("reply_drafts_enabled", False)
+                and sender_id in db.get_white_list()):
+            try:
+                draft = pending_reply_drafts.add(sender_id, sender_name, suggestion)
+            except ValueError:
+                logger.warning("Неподходящий черновик для отправки")
+            else:
+                preview = display_draft(sender_name, suggestion)
+                await client.send_message(
+                    "me",
+                    f"{preview}\n\n"
+                    f"🧑 ID контакта: {sender_id} · стиль: {tone}\n"
+                    f"✅ Отправить: .senddraft {draft.draft_id}\n"
+                    f"✏️ Изменить: .editdraft {draft.draft_id} НОВЫЙ ТЕКСТ\n"
+                    f"👁️ Проверить: .showdraft {draft.draft_id}\n"
+                    f"❌ Отменить: .canceldraft {draft.draft_id}\n"
+                    "Черновик действует 30 минут после создания.",
+                )
+        else:
+            logger.warning("Черновик не создан: модель недоступна или доступ отключён")
+        return
+
     # Фильтрация
     white_list = db.get_white_list()
     black_list = db.get_black_list()
@@ -312,22 +375,433 @@ async def handle_messages(event):
     # Белый список
     if sender_id in white_list or category == "important":
         await send_to_topic(TOPIC_IMPORTANT, f'⚡️ **ВАЖНОЕ!**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
-        if not is_online:
-            await event.reply(f'⚡️ {sender_name}, сообщение помечено как важное!')
         return
     
     # Спам
     if category == "spam":
-        db.set_black(sender_id, True)
         logger.info(f"Спам от {sender_name}")
         return
     
     # Обычная обработка
     if not is_online:
-        await event.reply(get_auto_reply(sender_name))
         await send_to_topic(TOPIC_INCOMING, f'📩 **Входящее**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
     else:
         await send_to_topic(TOPIC_INCOMING, f'🔔 **Сообщение**\n\nОт: {sender_name}\nТекст: {event.text}\n🕐 {get_time().strftime("%H:%M")}')
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.styleadd(?:\s|$)'))
+async def add_owner_style_example(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    sample = event.raw_text[len(".styleadd"):].strip()
+    existing = db.get_setting("draft_owner_style_examples", [])
+    try:
+        updated = add_example(existing, sample)
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    db.set_setting("draft_owner_style_examples", updated)
+    await event.reply(f"📝 Пример стиля сохранён ({len(updated)}/5). Посмотреть: .stylelist")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.stylelist(?:\s|$)'))
+async def list_owner_style_examples(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    samples = valid_examples(db.get_setting("draft_owner_style_examples", []))
+    if not samples:
+        await event.reply("Пока нет примеров. Добавить: .styleadd ТВОЯ ФРАЗА")
+        return
+    await event.reply(
+        "📝 Примеры твоего стиля:\n\n"
+        + "\n".join(f"{i}. {value}" for i, value in enumerate(samples, 1))
+        + "\n\nУдалить: .styledelete НОМЕР"
+    )
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.styledelete(?:\s|$)'))
+async def delete_owner_style_example(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".styledelete"):].strip()
+    if not value.isdecimal():
+        await event.reply("Формат: .styledelete НОМЕР")
+        return
+    try:
+        updated = delete_example(
+            db.get_setting("draft_owner_style_examples", []), int(value)
+        )
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    db.set_setting("draft_owner_style_examples", updated)
+    await event.reply("🗑️ Пример удалён.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.styleclear(?:\s|$)'))
+async def clear_owner_style_examples(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    if event.raw_text.strip() != ".styleclear CONFIRM":
+        await event.reply("Чтобы удалить все примеры: .styleclear CONFIRM")
+        return
+    db.set_setting("draft_owner_style_examples", [])
+    await event.reply("🧹 Все примеры личного стиля удалены.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.drafttone(?:\s|$)'))
+async def set_contact_draft_style(event):
+    """Set safe, per-contact reply style, only from owner's Saved Messages."""
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    args = event.raw_text[len(".drafttone"):].strip().split()
+    if not args or len(args) > 2 or not args[0].isdecimal():
+        await event.reply("Формат: .drafttone ID_КОНТАКТА warm / concise / professional")
+        return
+    contact_id = int(args[0])
+    if contact_id not in db.get_white_list():
+        await event.reply("Контакт не в белом списке. Настройки не изменены.")
+        return
+    key = setting_key(contact_id)
+    if len(args) == 1:
+        await event.reply(
+            f"Стиль контакта {contact_id}: {db.get_setting(key, DEFAULT_STYLE)}"
+        )
+        return
+    try:
+        selected = validated_style(args[1].lower())
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    db.set_setting(key, selected)
+    await event.reply(f"✅ Стиль контакта {contact_id}: {selected}")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.draftcontacts(?:\s|$)'))
+async def list_draft_contacts(event):
+    """Contact IDs are displayed privately, never in external chats."""
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    users = [(uid, name, count) for uid, name, count in db.get_top_users(100)
+             if uid != OWNER_ID and uid > 0 and uid not in db.get_black_list()]
+    if not users:
+        await event.reply("Пока нет известных контактов. Дождись входящего личного сообщения.")
+        return
+    permitted = set(db.get_white_list())
+    lines = [f"• {str(name)[:60]} — ID {uid} — {'✅ разрешён' if uid in permitted else '⏸ не разрешён'}"
+             for uid, name, _ in users[:20]]
+    await event.reply("👥 Контакты для черновиков:\\n" + "\\n".join(lines)
+                      + "\\n\\nРазрешить: .draftallow ID\\nЗапретить: .draftdeny ID")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.draftallow(?:\s|$)'))
+async def allow_draft_contact(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".draftallow"):].strip()
+    if not value.isdecimal() or int(value) <= 0 or int(value) == OWNER_ID:
+        await event.reply("Формат: .draftallow ID (узнать ID: .draftcontacts)")
+        return
+    contact_id = int(value)
+    if db.get_user(contact_id) is None or contact_id in db.get_black_list():
+        await event.reply("Контакт неизвестен или заблокирован. Разрешение не выдано.")
+        return
+    db.set_white(contact_id, True)
+    await event.reply(f"✅ Контакт {contact_id} разрешён. Для запуска: .drafts on")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.draftdeny(?:\s|$)'))
+async def deny_draft_contact(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".draftdeny"):].strip()
+    if not value.isdecimal() or int(value) <= 0 or int(value) == OWNER_ID:
+        await event.reply("Формат: .draftdeny ID (узнать ID: .draftcontacts)")
+        return
+    contact_id = int(value)
+    if db.get_user(contact_id) is None:
+        await event.reply("Контакт неизвестен. Ничего не изменено.")
+        return
+    db.set_white(contact_id, False)
+    removed = pending_reply_drafts.cancel_for_contact(contact_id)
+    recent_chat_context.forget(contact_id)
+    await event.reply(f"🛑 Контакт {contact_id} запрещён. Удалено черновиков: {removed}.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.drafts(?:\s|$)'))
+async def toggle_reply_drafts(event):
+    """Владелец включает предложения ответов в Telegram Избранном."""
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    requested = event.raw_text[len(".drafts"):].strip().lower()
+    if requested not in ("on", "off"):
+        state = "включены" if db.get_setting("reply_drafts_enabled", False) else "выключены"
+        await event.reply(
+            f"Черновики {state}. Команды: .drafts on / .drafts off. "
+            "Работает только для разрешённых личных чатов (.draftcontacts / .draftallow ID). "
+            "Предложения приходят в Избранное; собеседникам ничего не отправляется."
+        )
+        return
+    db.set_setting("reply_drafts_enabled", requested == "on")
+    if requested == "off":
+        pending_reply_drafts.clear()
+        recent_chat_context.clear()
+    await event.reply(
+        "✉️ Черновики включены для личных чатов из белого списка. "
+        "Результаты придут в Избранное, отправка только после команды .senddraft НОМЕР."
+        if requested == "on" else "🛑 Черновики выключены."
+    )
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.editdraft(?:\s|$)'))
+async def edit_reply_draft(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    arguments = event.raw_text[len('.editdraft'):].strip().split(None, 1)
+    if len(arguments) != 2 or not arguments[0].isdecimal():
+        await event.reply('Формат: .editdraft НОМЕР новый текст ответа')
+        return
+    try:
+        draft = pending_reply_drafts.edit(
+            int(arguments[0]), arguments[1],
+            enabled=db.get_setting('reply_drafts_enabled', False),
+            allowed_ids=set(db.get_white_list()),
+        )
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    if draft is None:
+        await event.reply('Черновик не найден, истёк или контакт больше не разрешён.')
+        return
+    await event.reply(
+        f'✏️ Черновик #{draft.draft_id} для {draft.recipient_name} обновлён.\n\n'
+        f'{draft.reply}\n\n'
+        f'✅ Отправить: .senddraft {draft.draft_id}\n'
+        f'❌ Отменить: .canceldraft {draft.draft_id}'
+    )
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.showdraft(?:\s|$)'))
+async def show_reply_draft(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len('.showdraft'):].strip()
+    if not value.isdecimal():
+        await event.reply('Формат: .showdraft НОМЕР')
+        return
+    draft = pending_reply_drafts.peek(int(value))
+    if not (draft and db.get_setting('reply_drafts_enabled', False)
+            and draft.recipient_id in db.get_white_list()):
+        await event.reply('Черновик не найден, истёк или контакт больше не разрешён.')
+        return
+    await event.reply(
+        f'👁️ Черновик #{draft.draft_id} для {draft.recipient_name}:\n\n'
+        f'{draft.reply}\n\n'
+        f'✅ Отправить: .senddraft {draft.draft_id}\n'
+        f'✏️ Изменить: .editdraft {draft.draft_id} НОВЫЙ ТЕКСТ'
+    )
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.senddraft(?:\s|$)'))
+async def send_reply_draft(event):
+    """One-time, owner-initiated send. Never runs from incoming chats."""
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".senddraft"):].strip()
+    if not value.isdecimal():
+        await event.reply("Формат: .senddraft НОМЕР (из последнего черновика)")
+        return
+    draft = pending_reply_drafts.take_for_send(
+        int(value),
+        enabled=db.get_setting("reply_drafts_enabled", False),
+        allowed_ids=set(db.get_white_list()),
+    )
+    if draft is None:
+        await event.reply("Черновик не найден, истёк, уже использован или контакт запрещён.")
+        return
+    try:
+        await client.send_message(draft.recipient_id, draft.reply)
+    except Exception:
+        logger.exception("Не удалось отправить подтверждённый черновик")
+        await event.reply("❌ Ошибка отправки. Черновик погашен во избежание дубля. Создай новый.")
+        return
+    await event.reply(f"✅ Отправлено контакту {draft.recipient_name} (черновик #{draft.draft_id}).")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.canceldraft(?:\s|$)'))
+async def cancel_reply_draft(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    value = event.raw_text[len(".canceldraft"):].strip()
+    if not value.isdecimal():
+        await event.reply("Формат: .canceldraft НОМЕР")
+        return
+    removed = pending_reply_drafts.cancel(int(value))
+    await event.reply("🗑️ Черновик отменён." if removed else "Черновик не найден или истёк.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.ask(?:\s+|$)'))
+async def ask_ai_command(event):
+    """Обращение к бесплатной локальной модели, только из аккаунта владельца."""
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    question = event.raw_text[4:].strip()
+    if not question:
+        await event.reply("Напиши вопрос после .ask")
+        return
+    async with ai_dialogue_lock:
+        history = db.get_ai_history(OWNER_ID, limit=12)
+        facts = [fact for _, fact in db.list_ai_facts(OWNER_ID)]
+        tone = db.get_setting("ai_tone", "warm")
+        tasks = [title for _, title in db.list_ai_tasks(OWNER_ID, limit=50)]
+        answer = await ask_local_ai(question, history, facts, tone, tasks)
+        if not answer.startswith("Локальная модель недоступна."):
+            db.add_ai_exchange(OWNER_ID, question, answer)
+        await event.reply(answer[:4000])
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.forget(?:\s|$)'))
+async def forget_ai_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    async with ai_dialogue_lock:
+        removed = db.clear_ai_history(OWNER_ID)
+    await event.reply(f"🧹 Удалила историю ИИ: {removed} сообщений. Статистика и входящие сообщения не затронуты.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.memory(?:\s|$)'))
+async def ai_memory_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    count = len(db.get_ai_history(OWNER_ID, limit=100))
+    await event.reply(f"🧠 В памяти есть последние {count} реплик (показываю максимум 30). Для удаления: .forget")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.remember(?:\s|$)'))
+async def remember_fact_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    fact = event.raw_text[len(".remember"):].strip()
+    try:
+        fact_id = db.add_ai_fact(OWNER_ID, fact)
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    await event.reply(f"🧠 Запомнила заметку #{fact_id}. Посмотреть: .memories")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.memories(?:\s|$)'))
+async def list_facts_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    facts = db.list_ai_facts(OWNER_ID)
+    if not facts:
+        await event.reply("Пока нет сохранённых заметок. Добавить: .remember текст")
+        return
+    lines = [f"#{fact_id}: {fact}" for fact_id, fact in facts]
+    # Telegram has a message size limit. Send manageable chunks.
+    chunk = ""
+    for line in lines:
+        if len(chunk) + len(line) + 1 > 3500:
+            await event.reply(chunk)
+            chunk = ""
+        chunk += line + "\n"
+    if chunk:
+        await event.reply(chunk)
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.forgetfact(?:\s|$)'))
+async def forget_fact_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    arg = event.raw_text[len(".forgetfact"):].strip()
+    if not arg.isdecimal():
+        await event.reply("Формат: .forgetfact номер")
+        return
+    removed = db.delete_ai_fact(OWNER_ID, int(arg))
+    await event.reply("🧹 Заметка удалена." if removed else "Заметка не найдена.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.forgetallfacts(?:\s|$)'))
+async def forget_all_facts_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    if event.raw_text.strip() != ".forgetallfacts CONFIRM":
+        await event.reply("Для удаления всех заметок напиши: .forgetallfacts CONFIRM")
+        return
+    removed = db.clear_ai_facts(OWNER_ID)
+    await event.reply(f"🧹 Удалено заметок: {removed}")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.tone(?:\s|$)'))
+async def set_ai_tone_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    from personality import PERSONAS
+    tone = event.raw_text[len(".tone"):].strip().lower()
+    if tone not in PERSONAS:
+        current = db.get_setting("ai_tone", "warm")
+        await event.reply(
+            f"Текущий характер: {current}. Выбери: .tone warm / concise / professional"
+        )
+        return
+    db.set_setting("ai_tone", tone)
+    await event.reply(f"✨ Стиль общения: {tone}")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.taskadd(?:\s|$)'))
+async def add_task_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    title = event.raw_text[len(".taskadd"):].strip()
+    try:
+        task_id = db.add_ai_task(OWNER_ID, title)
+    except ValueError as error:
+        await event.reply(str(error))
+        return
+    await event.reply(f"✅ Записала задачу #{task_id}: {title[:300]}")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.tasks(?:\s|$)'))
+async def list_tasks_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    tasks = db.list_ai_tasks(OWNER_ID)
+    if not tasks:
+        await event.reply("🎉 Открытых задач нет. Добавить: .taskadd текст")
+        return
+    chunk = ""
+    for task_id, title in tasks:
+        line = f"#{task_id}: {title}\n"
+        if len(chunk) + len(line) > 3500:
+            await event.reply(chunk)
+            chunk = ""
+        chunk += line
+    if chunk:
+        await event.reply(chunk)
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.taskdone(?:\s|$)'))
+async def complete_task_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    arg = event.raw_text[len(".taskdone"):].strip()
+    if not arg.isdecimal():
+        await event.reply("Формат: .taskdone номер")
+        return
+    updated = db.complete_ai_task(OWNER_ID, int(arg))
+    await event.reply("✅ Задача завершена." if updated else "Открытая задача не найдена.")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.taskdelete(?:\s|$)'))
+async def delete_task_command(event):
+    if not is_saved_messages_owner(event, OWNER_ID):
+        return
+    arg = event.raw_text[len(".taskdelete"):].strip()
+    if not arg.isdecimal():
+        await event.reply("Формат: .taskdelete номер")
+        return
+    removed = db.delete_ai_task(OWNER_ID, int(arg))
+    await event.reply("🗑️ Задача удалена." if removed else "Задача не найдена.")
+
 
 # === ЗАПУСК ===
 
@@ -337,7 +811,14 @@ async def main():
     logger.info(f"📁 Группа: {GROUP_ID}")
     logger.info(f"🔍 Фильтр: {FILTER_MODE}")
     
-    await client.run_until_disconnected()
+    scheduler = Scheduler(client, db, send_to_topic)
+    await scheduler.start()
+    try:
+        await client.run_until_disconnected()
+    finally:
+        for task in scheduler.tasks:
+            task.cancel()
+        await asyncio.gather(*scheduler.tasks, return_exceptions=True)
 
 if __name__ == "__main__":
     asyncio.run(main())

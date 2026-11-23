@@ -1,0 +1,64 @@
+name: Windows desktop preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["refactor/secure-local-assistant-foundation"]
+    paths:
+      - ".github/workflows/windows-desktop-preview.yml"
+      - "desktop_app.py"
+      - "desktop_diagnostics.py"
+      - "desktop_events.py"
+      - "desktop_tasks.py"
+      - "desktop_generation.py"
+      - "desktop_logic.py"
+      - "desktop_settings.py"
+      - "local_ai.py"
+      - "local_folder_search.py"
+      - "local_recent_files.py"
+      - "offline_workspace.py"
+      - "offline_workspace_app.py"
+      - "focus_session.py"
+      - "task_scheduler.py"
+      - "tests/**"
+
+jobs:
+  windows-preview:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+      - name: Run Python tests
+        run: python -m unittest discover -s tests -v
+      - name: Probe interactive Tk workspace
+        run: python desktop_app.py --gui-self-test
+      - name: Build desktop application
+        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name SherlockAI desktop_app.py
+      - name: Verify desktop executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/SherlockAI/SherlockAI.exe")) {
+            throw "SherlockAI.exe was not created"
+          }
+      - name: Smoke test packaged executable
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath ".\\dist\\SherlockAI\\SherlockAI.exe" -ArgumentList "--self-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged executable self-test failed with exit code $($process.ExitCode)"
+          }
+      - name: Upload Windows preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: SherlockAI-Windows-preview
+          path: dist/SherlockAI/
+          if-no-files-found: error
+          retention-days: 7

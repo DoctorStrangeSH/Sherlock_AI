@@ -66,8 +66,157 @@ class Database:
             )
         ''')
         
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_dialogue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_facts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER NOT NULL,
+                fact TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open'
+                    CHECK(status IN ('open', 'done')),
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            )
+        """)
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_tasks_owner_status "
+            "ON ai_tasks(owner_id, status, id)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_dialogue_owner_id "
+            "ON ai_dialogue(owner_id, id)"
+        )
         self.conn.commit()
     
+    def add_ai_task(self, owner_id, title):
+        title = " ".join(title.split()).strip()
+        if not 1 <= len(title) <= 300:
+            raise ValueError("Текст задачи: от 1 до 300 символов")
+        with self.conn:
+            open_count = self.conn.execute(
+                "SELECT COUNT(*) FROM ai_tasks WHERE owner_id = ? AND status = 'open'",
+                (owner_id,)
+            ).fetchone()[0]
+            if open_count >= 200:
+                raise ValueError("Сначала заверши часть из 200 открытых задач")
+            cursor = self.conn.execute(
+                "INSERT INTO ai_tasks(owner_id, title, created_at) VALUES (?, ?, ?)",
+                (owner_id, title, datetime.now(MOSCOW_TZ).isoformat())
+            )
+        return cursor.lastrowid
+
+    def list_ai_tasks(self, owner_id, status='open', limit=100):
+        if status not in ('open', 'done'):
+            raise ValueError("Неизвестный статус")
+        return self.conn.execute(
+            "SELECT id, title FROM ai_tasks WHERE owner_id = ? AND status = ? "
+            "ORDER BY id ASC LIMIT ?", (owner_id, status, min(max(0, limit), 200))
+        ).fetchall()
+
+    def complete_ai_task(self, owner_id, task_id):
+        with self.conn:
+            cursor = self.conn.execute(
+                "UPDATE ai_tasks SET status = 'done', completed_at = ? "
+                "WHERE owner_id = ? AND id = ? AND status = 'open'",
+                (datetime.now(MOSCOW_TZ).isoformat(), owner_id, task_id)
+            )
+        return cursor.rowcount > 0
+
+    def delete_ai_task(self, owner_id, task_id):
+        with self.conn:
+            cursor = self.conn.execute(
+                "DELETE FROM ai_tasks WHERE owner_id = ? AND id = ?",
+                (owner_id, task_id)
+            )
+        return cursor.rowcount > 0
+
+    def add_ai_fact(self, owner_id, fact):
+        """Явно сохраняет заметку владельца, без автоматической добычи фактов."""
+        fact = " ".join(fact.split()).strip()
+        if not fact or len(fact) > 500:
+            raise ValueError("Заметка должна содержать от 1 до 500 символов")
+        with self.conn:
+            count = self.conn.execute(
+                "SELECT COUNT(*) FROM ai_facts WHERE owner_id = ?", (owner_id,)
+            ).fetchone()[0]
+            if count >= 50:
+                raise ValueError("Лимит памяти: 50 заметок. Удали ненужные.")
+            cur = self.conn.execute(
+                "INSERT INTO ai_facts(owner_id, fact, created_at) VALUES (?, ?, ?)",
+                (owner_id, fact, datetime.now(MOSCOW_TZ).isoformat())
+            )
+        return cur.lastrowid
+
+    def list_ai_facts(self, owner_id):
+        return self.conn.execute(
+            "SELECT id, fact FROM ai_facts WHERE owner_id = ? ORDER BY id",
+            (owner_id,)
+        ).fetchall()
+
+    def delete_ai_fact(self, owner_id, fact_id):
+        with self.conn:
+            cur = self.conn.execute(
+                "DELETE FROM ai_facts WHERE owner_id = ? AND id = ?",
+                (owner_id, fact_id)
+            )
+        return cur.rowcount > 0
+
+    def clear_ai_facts(self, owner_id):
+        with self.conn:
+            cur = self.conn.execute(
+                "DELETE FROM ai_facts WHERE owner_id = ?", (owner_id,)
+            )
+        return cur.rowcount
+
+    def get_ai_history(self, owner_id, limit=12):
+        """Последние реплики владельца в хронологическом порядке."""
+        limit = max(0, min(int(limit), 30))
+        rows = self.conn.execute(
+            "SELECT role, content FROM ai_dialogue WHERE owner_id = ? "
+            "ORDER BY id DESC LIMIT ?", (owner_id, limit)
+        ).fetchall()
+        return [{"role": role, "content": content} for role, content in reversed(rows)]
+
+    def add_ai_exchange(self, owner_id, question, answer):
+        """Сохраняет пару реплик и не больше 100 последних сообщений."""
+        now = datetime.now(MOSCOW_TZ).isoformat()
+        with self.conn:
+            self.conn.executemany(
+                "INSERT INTO ai_dialogue(owner_id, role, content, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                [(owner_id, "user", question, now),
+                 (owner_id, "assistant", answer, now)]
+            )
+            self.conn.execute(
+                "DELETE FROM ai_dialogue WHERE owner_id = ? AND id NOT IN "
+                "(SELECT id FROM ai_dialogue WHERE owner_id = ? "
+                "ORDER BY id DESC LIMIT 100)", (owner_id, owner_id)
+            )
+
+    def clear_ai_history(self, owner_id):
+        """Удаляет всю историю ИИ для указанного владельца."""
+        with self.conn:
+            cursor = self.conn.execute(
+                "DELETE FROM ai_dialogue WHERE owner_id = ?", (owner_id,)
+            )
+        return cursor.rowcount
+
     # === ПОЛЬЗОВАТЕЛИ ===
     def add_user(self, user_id, name, username=None):
         now = datetime.now(MOSCOW_TZ).isoformat()
