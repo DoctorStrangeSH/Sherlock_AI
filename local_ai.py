@@ -38,6 +38,14 @@ def selected_model():
     return choose_model(installed_models(), OLLAMA_MODEL)
 
 
+def refresh_model_catalog():
+    """Refresh Ollama's installed-model cache after a user requests a rescan."""
+    installed_models.cache_clear()
+    selected_model.cache_clear()
+    models = installed_models()
+    return choose_model(models, OLLAMA_MODEL), models
+
+
 def _request(question: str, history=None, facts=None, tone="warm", tasks=None, model=None, on_chunk=None, performance="Баланс", cancel_event=None, on_response=None) -> str:
     if cancel_event is not None and cancel_event.is_set():
         raise GenerationCancelled("Generation cancelled.")
