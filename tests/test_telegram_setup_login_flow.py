@@ -8,13 +8,14 @@ class TelegramLoginFlowTests(unittest.TestCase):
     def test_delivery_helpers_show_fallback_without_exposing_hash(self):
         import telegram_setup
 
-        class Sent:
-            type = type("SentCodeTypeApp", (), {})()
-            next_type = type("CodeTypeSms", (), {})()
-            timeout = 75
-            phone_code_hash = "must-not-be-printed"
+        from types import SimpleNamespace
 
-        sent = Sent()
+        sent = SimpleNamespace(
+            type=type("SentCodeTypeApp", (), {})(),
+            next_type=type("CodeTypeSms", (), {})(),
+            timeout=75,
+            phone_code_hash="must-not-be-printed",
+        )
         self.assertIn("служебный чат Telegram", telegram_setup.delivery_hint(sent))
         self.assertEqual(telegram_setup.next_delivery_hint(sent), "SMS")
         self.assertEqual(telegram_setup.delivery_timeout(sent), 75)
