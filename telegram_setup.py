@@ -43,6 +43,37 @@ def delivery_hint(sent):
     return descriptions.get(kind, "способ не определён текущей версией программы")
 
 
+def next_delivery_hint(sent):
+    """Describe Telegram's next permitted delivery method without exposing hashes."""
+    kind = type(getattr(sent, "next_type", None)).__name__
+    descriptions = {
+        "CodeTypeApp": "служебное уведомление Telegram",
+        "CodeTypeSms": "SMS",
+        "CodeTypeCall": "телефонный звонок",
+        "CodeTypeFlashCall": "короткий входящий звонок",
+        "CodeTypeMissedCall": "пропущенный звонок",
+        "CodeTypeFragmentSms": "Fragment",
+        "CodeTypeEmailCode": "электронная почта",
+    }
+    return descriptions.get(kind, "Telegram не сообщил альтернативный способ")
+
+
+def delivery_timeout(sent):
+    value = getattr(sent, "timeout", None)
+    return value if type(value) is int and value >= 0 else None
+
+
+async def request_alternative_code(client, phone, sent):
+    """Ask Telegram for its advertised next code method, only after user consent."""
+    if not getattr(sent, "next_type", None):
+        raise RuntimeError("Telegram не предоставил альтернативный способ доставки")
+    phone_hash = getattr(sent, "phone_code_hash", None)
+    if not phone_hash:
+        raise RuntimeError("Telegram не предоставил идентификатор запроса кода")
+    from telethon.tl.functions.auth import ResendCodeRequest
+    return await client(ResendCodeRequest(phone, phone_hash))
+
+
 def authorization_error_message(exc):
     """Return useful advice without ever including exception text or credentials."""
     kind = type(exc).__name__
@@ -120,7 +151,23 @@ async def authorize():
         print("Запрашиваем код у Telegram...")
         sent = await client.send_code_request(phone)
         print("Telegram указал способ доставки:", delivery_hint(sent))
-        print("Если код не появился, нажми Ctrl+C. Не запрашивай его многократно подряд.")
+        timeout = delivery_timeout(sent)
+        if timeout is not None:
+            print(f"Время ожидания перед альтернативным способом: {timeout} сек.")
+        next_hint = next_delivery_hint(sent)
+        if next_hint != "Telegram не сообщил альтернативный способ":
+            print("Следующий способ, разрешённый Telegram:", next_hint)
+        print("Проверь служебный чат Telegram (отправитель 777000) на остальных активных устройствах.")
+        if getattr(sent, "next_type", None):
+            answer = input("Если код не пришёл и время ожидания прошло, запросить следующий способ? [д/н]: ").strip().lower()
+            if answer in {"д", "да", "y", "yes"}:
+                sent = await request_alternative_code(client, phone, sent)
+                print("Новый способ доставки:", delivery_hint(sent))
+                timeout = delivery_timeout(sent)
+                if timeout is not None:
+                    print(f"Время ожидания: {timeout} сек.")
+            else:
+                print("Альтернативный запрос не выполнялся.")
         code = getpass("Код из Telegram (ввод скрыт): ").strip()
         if not code:
             print("Код не введён, настройка остановлена.")
