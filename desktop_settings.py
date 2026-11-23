@@ -68,3 +68,14 @@ def desktop_window_metrics(screen_width, screen_height):
     initial_width = max(min_width, min(1120, width - 40))
     initial_height = max(min_height, min(760, height - 90))
     return (initial_width, initial_height), (min_width, min_height)
+
+
+def workspace_window_metrics(screen_width, screen_height):
+    """Return a screen-aware size for the standalone workspace window."""
+    width = max(1, int(screen_width))
+    height = max(1, int(screen_height))
+    min_width = max(440, min(580, width - 40))
+    min_height = max(340, min(400, height - 80))
+    initial_width = max(min_width, min(760, width - 40))
+    initial_height = max(min_height, min(510, height - 90))
+    return (initial_width, initial_height), (min_width, min_height)
