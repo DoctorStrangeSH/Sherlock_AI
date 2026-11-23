@@ -79,6 +79,43 @@ class LocalAiStreamingTests(unittest.TestCase):
         payload = json.loads(urlopen.call_args.args[0].data)
         self.assertEqual(payload["options"]["num_predict"], 320)
 
+    def test_refresh_model_catalog_invalidates_both_caches(self):
+        class TagsResponse:
+            def __init__(self, names):
+                self.payload = json.dumps({
+                    "models": [{"name": name} for name in names],
+                }).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return self.payload
+
+        local_ai.installed_models.cache_clear()
+        local_ai.selected_model.cache_clear()
+        responses = [
+            TagsResponse(["qwen3:1.7b"]),
+            TagsResponse(["llama3:latest"]),
+        ]
+        try:
+            with patch.object(local_ai, "OLLAMA_MODEL", "auto"), patch.object(
+                local_ai.urllib.request, "urlopen", side_effect=responses,
+            ) as urlopen:
+                self.assertEqual(local_ai.selected_model(), "qwen3:1.7b")
+                self.assertEqual(local_ai.installed_models(), ["qwen3:1.7b"])
+                self.assertEqual(
+                    local_ai.refresh_model_catalog(),
+                    ("llama3:latest", ["llama3:latest"]),
+                )
+                self.assertEqual(urlopen.call_count, 2)
+        finally:
+            local_ai.installed_models.cache_clear()
+            local_ai.selected_model.cache_clear()
+
     def test_stream_errors_are_not_silent(self):
         chunks = [b'{"error":"model failed"}\n']
         with patch.object(local_ai.urllib.request, "urlopen", return_value=FakeResponse(chunks)):
