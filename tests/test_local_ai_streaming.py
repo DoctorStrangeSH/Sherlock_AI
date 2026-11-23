@@ -116,6 +116,31 @@ class LocalAiStreamingTests(unittest.TestCase):
             local_ai.installed_models.cache_clear()
             local_ai.selected_model.cache_clear()
 
+    def test_unavailable_ollama_returns_actionable_message(self):
+        with patch.object(
+            local_ai, "_request",
+            side_effect=local_ai.urllib.error.URLError("connection refused"),
+        ):
+            result = __import__("asyncio").run(local_ai.ask_local_ai("Привет"))
+        self.assertIn("Локальная модель недоступна", result)
+        self.assertIn("Запусти Ollama", result)
+        self.assertIn("ollama pull", result)
+
+    def test_generation_timeout_returns_recoverable_message(self):
+        with patch.object(local_ai, "_request", side_effect=TimeoutError("slow model")):
+            result = __import__("asyncio").run(local_ai.ask_local_ai("Привет"))
+        self.assertIn("Локальная модель недоступна", result)
+        self.assertIn("Запусти Ollama", result)
+
+    def test_missing_model_http_error_is_reported_without_traceback(self):
+        error = local_ai.urllib.error.HTTPError(
+            "http://127.0.0.1:11434/api/chat", 404, "model not found", {}, None,
+        )
+        with patch.object(local_ai, "_request", side_effect=error):
+            result = __import__("asyncio").run(local_ai.ask_local_ai("Привет"))
+        self.assertIn("Локальная модель недоступна", result)
+        self.assertNotIn("Traceback", result)
+
     def test_stream_errors_are_not_silent(self):
         chunks = [b'{"error":"model failed"}\n']
         with patch.object(local_ai.urllib.request, "urlopen", return_value=FakeResponse(chunks)):
