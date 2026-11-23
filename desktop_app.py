@@ -28,7 +28,7 @@ from task_planner import build_task_plan, build_day_parts, build_time_budget_pla
 from task_scheduler import build_timed_schedule, describe_current_slot, shift_saved_schedule, build_remaining_day_schedule
 from task_reminders import ReminderTracker, valid_reminder_time
 from desktop_logic import ConversationSession, context_window, conversation_title
-from desktop_settings import load_desktop_settings, save_desktop_settings
+from desktop_settings import desktop_window_metrics, load_desktop_settings, save_desktop_settings
 from desktop_generation import GenerationWorker
 from desktop_events import DesktopEventBus, OperationRegistry
 from desktop_tasks import DesktopTaskManager
@@ -84,8 +84,9 @@ class SherlockDesktop:
         root.title("Sherlock AI — личный помощник")
         screen_width = root.winfo_screenwidth()
         screen_height = root.winfo_screenheight()
-        root.geometry(f"{min(1120, screen_width - 40)}x{min(760, screen_height - 90)}")
-        root.minsize(760, 550)
+        initial_size, minimum_size = desktop_window_metrics(screen_width, screen_height)
+        root.geometry(f"{initial_size[0]}x{initial_size[1]}")
+        root.minsize(*minimum_size)
         root.configure(bg=BACKGROUND)
         root.protocol("WM_DELETE_WINDOW", self.close)
 
@@ -471,12 +472,12 @@ class SherlockDesktop:
             fg=MUTED, font=("Segoe UI", 9), anchor="w",
         )
         self.chat_model_status.pack(anchor="w", pady=(3, 0))
-        quick_actions = tk.Frame(chat_heading, bg=BACKGROUND)
-        quick_actions.pack(side="right", padx=(12, 0))
-        tk.Button(quick_actions, text="◷ Мой день", command=lambda: self.show_page("day"),
+        self.chat_quick_actions = tk.Frame(chat_heading, bg=BACKGROUND)
+        self.chat_quick_actions.pack(side="right", padx=(12, 0))
+        tk.Button(self.chat_quick_actions, text="◷ Мой день", command=lambda: self.show_page("day"),
                   bg=SURFACE, fg=TEXT, activebackground=INPUT, activeforeground=TEXT,
                   relief="flat", padx=11, pady=7).pack(side="left", padx=(0, 6))
-        tk.Button(quick_actions, text="✓ Задачи", command=lambda: self.show_page("tasks"),
+        tk.Button(self.chat_quick_actions, text="✓ Задачи", command=lambda: self.show_page("tasks"),
                   bg=SURFACE, fg=TEXT, activebackground=INPUT, activeforeground=TEXT,
                   relief="flat", padx=11, pady=7).pack(side="left")
 
@@ -556,9 +557,10 @@ class SherlockDesktop:
         if event.widget is self.root:
             self.activity.configure(wraplength=max(160, event.width - 320))
             self.update_navigation_layout(event.width)
+            self.update_chat_heading_layout(event.width)
 
     def update_navigation_layout(self, width: int) -> None:
-        compact = width < 960
+        compact = width < 900
         if self.nav_compact == compact:
             return
         self.nav_compact = compact
@@ -578,6 +580,13 @@ class SherlockDesktop:
                 padx=2 if compact else 12,
                 font=("Segoe UI", 13 if compact else 10),
             )
+
+    def update_chat_heading_layout(self, width: int) -> None:
+        """Hide secondary chat shortcuts when a narrow window cannot fit them."""
+        if width < 720:
+            self.chat_quick_actions.pack_forget()
+        elif not self.chat_quick_actions.winfo_manager():
+            self.chat_quick_actions.pack(side="right", padx=(12, 0))
 
     def show_daily_briefing(self) -> None:
         """Show only locally stored urgent tasks; startup must survive a DB error."""
