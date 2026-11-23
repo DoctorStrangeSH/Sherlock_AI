@@ -2,6 +2,7 @@
 import asyncio
 from getpass import getpass
 import os
+import time
 from pathlib import Path
 
 from telegram_network import telegram_client_options
@@ -161,6 +162,9 @@ async def authorize():
         if getattr(sent, "next_type", None):
             answer = input("Если код не пришёл и время ожидания прошло, запросить следующий способ? [д/н]: ").strip().lower()
             if answer in {"д", "да", "y", "yes"}:
+                if timeout:
+                    print(f"Ждём {timeout} сек. до разрешённого повторного запроса…")
+                    time.sleep(timeout)
                 sent = await request_alternative_code(client, phone, sent)
                 print("Новый способ доставки:", delivery_hint(sent))
                 timeout = delivery_timeout(sent)
