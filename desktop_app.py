@@ -2068,12 +2068,15 @@ def run_gui_self_test() -> int:
             root.withdraw()
             try:
                 app = SherlockDesktop(root)
-                # A failed model refresh must release both its operation lock and UI control.
+                # A failed model refresh must release exactly its own operation lock.
+                # Startup has a separate model-check task, so preserve that baseline.
+                active_before = app.operations.snapshot()["active"].get("model_check", 0)
                 app.operations.begin("model_check")
                 app.refresh_models_button.configure(state="disabled")
                 app._handle_background_task_error("model-refresh", "simulated failure")
-                if app.operations.is_active("model_check"):
-                    raise RuntimeError("Failed model refresh left its operation active.")
+                active_after = app.operations.snapshot()["active"].get("model_check", 0)
+                if active_after != active_before:
+                    raise RuntimeError("Failed model refresh did not release its operation lock.")
                 if str(app.refresh_models_button.cget("state")) != "normal":
                     raise RuntimeError("Failed model refresh left the refresh button disabled.")
                 for page in ("chat", "day", "tasks", "notes", "memory", "history", "settings"):
