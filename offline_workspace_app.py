@@ -5,6 +5,7 @@ from tkinter import messagebox, simpledialog, ttk
 
 from offline_workspace import OfflineWorkspace
 from task_overview import task_bucket
+from desktop_settings import workspace_window_metrics
 
 
 BG = "#0b1020"
@@ -51,8 +52,11 @@ class WorkspaceWindow:
         self.on_open_conversation = on_open_conversation
         if not embedded:
             window.title("Sherlock AI — личное пространство")
-            window.geometry("760x510")
-            window.minsize(580, 400)
+            initial_size, minimum_size = workspace_window_metrics(
+                window.winfo_screenwidth(), window.winfo_screenheight(),
+            )
+            window.geometry(f"{initial_size[0]}x{initial_size[1]}")
+            window.minsize(*minimum_size)
             window.protocol("WM_DELETE_WINDOW", self.close)
         window.configure(bg=BG)
         configure_dark_theme(window)
