@@ -31,6 +31,23 @@ class TelegramLoginFlowTests(unittest.TestCase):
         self.assertLess(source.index("time.sleep(timeout)"), source.index("request_alternative_code(client, phone, sent)"))
         self.assertIn("if timeout:", source)
 
+    def test_qr_login_is_available_without_phone_code_request(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "telegram_setup.py").read_text(encoding="utf-8"))
+        auth = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "authorize")
+        source = ast.unparse(auth)
+        self.assertIn("await authorize_with_qr(client)", source)
+        self.assertIn("Способ входа", source)
+        self.assertIn("await client.send_code_request(phone)", source)
+
+    def test_qr_flow_waits_for_scan_and_supports_two_step_password(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "telegram_setup.py").read_text(encoding="utf-8"))
+        qr = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "authorize_with_qr")
+        source = ast.unparse(qr)
+        self.assertIn("await client.qr_login()", source)
+        self.assertIn("await login.wait(timeout=120)", source)
+        self.assertIn("SessionPasswordNeededError", source)
+        self.assertIn("await client.sign_in(password=", source)
+
     def test_explicit_connect_precedes_phone_code_request(self):
         tree = ast.parse((Path(__file__).resolve().parents[1] / "telegram_setup.py").read_text(encoding="utf-8"))
         auth = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "authorize")
