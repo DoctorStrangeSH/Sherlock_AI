@@ -21,6 +21,16 @@ class TelegramLoginFlowTests(unittest.TestCase):
         self.assertEqual(telegram_setup.delivery_timeout(sent), 75)
         self.assertNotIn(sent.phone_code_hash, telegram_setup.delivery_hint(sent))
 
+    def test_resend_waits_for_telegram_timeout_before_request(self):
+        import ast
+        from pathlib import Path
+
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "telegram_setup.py").read_text(encoding="utf-8"))
+        authorize = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "authorize")
+        source = ast.unparse(authorize)
+        self.assertLess(source.index("time.sleep(timeout)"), source.index("request_alternative_code(client, phone, sent)"))
+        self.assertIn("if timeout:", source)
+
     def test_explicit_connect_precedes_phone_code_request(self):
         tree = ast.parse((Path(__file__).resolve().parents[1] / "telegram_setup.py").read_text(encoding="utf-8"))
         auth = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "authorize")
