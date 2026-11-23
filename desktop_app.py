@@ -1844,8 +1844,9 @@ class SherlockDesktop:
         self.events.publish("task_error", task.name, safe_exception_summary(error))
 
     def _handle_background_task_error(self, task_name: str, message: str) -> None:
-        if task_name == "model-check":
+        if task_name in {"model-check", "model-refresh"}:
             self.operations.finish("model_check")
+            self.refresh_models_button.configure(state="normal")
             self.chat_model_status.configure(text="● Ошибка проверки Ollama", fg="#f6b7a2")
         elif task_name in {"folder-search", "recent-files"}:
             self.operations.finish("file_search")
@@ -2067,6 +2068,14 @@ def run_gui_self_test() -> int:
             root.withdraw()
             try:
                 app = SherlockDesktop(root)
+                # A failed model refresh must release both its operation lock and UI control.
+                app.operations.begin("model_check")
+                app.refresh_models_button.configure(state="disabled")
+                app._handle_background_task_error("model-refresh", "simulated failure")
+                if app.operations.is_active("model_check"):
+                    raise RuntimeError("Failed model refresh left its operation active.")
+                if str(app.refresh_models_button.cget("state")) != "normal":
+                    raise RuntimeError("Failed model refresh left the refresh button disabled.")
                 for page in ("chat", "day", "tasks", "notes", "memory", "history", "settings"):
                     app.show_page(page)
                     root.update_idletasks()
