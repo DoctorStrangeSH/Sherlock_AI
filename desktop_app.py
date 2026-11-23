@@ -539,6 +539,7 @@ class SherlockDesktop:
         self.root.bind("<Configure>", self.on_window_resize)
         self.root.bind_all("<MouseWheel>", self.on_mouse_wheel, add="+")
         self.root.after_idle(lambda: self.update_navigation_layout(self.root.winfo_width()))
+        self.root.after_idle(lambda: self.update_chat_heading_layout(self.root.winfo_width()))
 
     def on_mouse_wheel(self, event):
         """Scroll the day overview when the pointer is over its content."""
