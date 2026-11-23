@@ -37,7 +37,7 @@ from desktop_diagnostics import (
     shutdown_diagnostics, write_support_report,
 )
 import logging
-from local_ai import selected_model, installed_models
+from local_ai import selected_model, installed_models, refresh_model_catalog
 
 
 BACKGROUND = "#0b1020"
@@ -382,11 +382,20 @@ class SherlockDesktop:
         self.model_label = tk.Label(model_card, text="Модель: проверяется…",
                                     bg=SURFACE, fg="#a9f6ce", font=("Segoe UI", 10))
         self.model_label.pack(anchor="w", pady=(0, 8))
+        model_controls = tk.Frame(model_card, bg=SURFACE)
+        model_controls.pack(fill="x")
         self.model_picker = ttk.Combobox(
-            model_card, textvariable=self.model_choice, width=26,
+            model_controls, textvariable=self.model_choice, width=26,
             state="readonly", style="Sherlock.TCombobox")
-        self.model_picker.pack(anchor="w")
+        self.model_picker.pack(side="left")
         self.model_picker.bind("<<ComboboxSelected>>", self.save_model_choice)
+        self.refresh_models_button = tk.Button(
+            model_controls, text="↻ Обновить список",
+            command=self.refresh_model_list, bg=INPUT, fg=TEXT,
+            activebackground=ACCENT, activeforeground=BACKGROUND,
+            relief="flat", padx=11, pady=6,
+        )
+        self.refresh_models_button.pack(side="left", padx=(9, 0))
 
         behavior_card = settings_card(
             "⚡ Поведение и производительность",
@@ -1312,17 +1321,36 @@ class SherlockDesktop:
         self.chat.configure(state="disabled")
         self.chat.see("end")
 
-    def check_model(self, cancel_event=None) -> None:
+    def refresh_model_list(self) -> None:
+        """Rescan Ollama models in the background without freezing the interface."""
+        if self.closed or self.closing or self.operations.is_active("model_check"):
+            return
+        self.operations.begin("model_check")
+        self.refresh_models_button.configure(state="disabled")
+        self.model_label.configure(text="Обновляем список моделей…")
+        self.chat_model_status.configure(
+            text="● Проверяем установленные модели Ollama…", fg=MUTED,
+        )
         try:
-            result = selected_model()
-            models = installed_models()
+            self.tasks.start(
+                "model-refresh", self.check_model, refresh=True,
+                on_error=self._on_background_task_error,
+            )
+        except RuntimeError:
+            self.operations.finish("model_check")
+            self.refresh_models_button.configure(state="normal")
+            self.model_label.configure(text="Не удалось запустить проверку моделей.")
+
+    def check_model(self, cancel_event=None, refresh=False) -> None:
+        try:
+            result, models = refresh_model_catalog() if refresh else (selected_model(), installed_models())
             if cancel_event is not None and cancel_event.is_set():
                 return
             self.events.publish("model", "Модель: " + result, models)
         except Exception as exc:
             if cancel_event is None or not cancel_event.is_set():
                 self.logger.warning("Ollama health check failed · %s", safe_exception_summary(exc))
-                self.events.publish("model", "Ollama не готова · проверь установку и модель")
+                self.events.publish("model", "Ollama не готова · проверь установку и модель", [])
 
     def send_event(self, event) -> str:
         self.send()
@@ -1746,6 +1774,7 @@ class SherlockDesktop:
                     self.append_stream_chunk(event[1])
                 elif event[0] == "model":
                     self.operations.finish("model_check")
+                    self.refresh_models_button.configure(state="normal")
                     self.model_label.configure(text=event[1])
                     model_ready = len(event) > 2 and bool(event[2])
                     if model_ready:
@@ -1844,6 +1873,7 @@ class SherlockDesktop:
             self.search_details.configure(text="Не удалось обработать результат. Повтори операцию.")
         elif kind == "model":
             self.operations.finish("model_check")
+            self.refresh_models_button.configure(state="normal")
             self.chat_model_status.configure(text="● Не удалось проверить Ollama", fg="#f6b7a2")
         self.status.configure(text="Произошла внутренняя ошибка обработки события. Можно продолжить работу.")
 
