@@ -7,6 +7,24 @@ from desktop_settings import DEFAULT_SETTINGS, load_desktop_settings, save_deskt
 
 
 class DesktopSettingsTests(unittest.TestCase):
+    def test_window_metrics_fit_small_screens(self):
+        from desktop_settings import desktop_window_metrics
+
+        initial, minimum = desktop_window_metrics(800, 600)
+        self.assertEqual(minimum, (760, 520))
+        self.assertGreaterEqual(initial[0], minimum[0])
+        self.assertGreaterEqual(initial[1], minimum[1])
+        self.assertLessEqual(initial[0], 760)
+        self.assertLessEqual(initial[1], 520)
+
+    def test_window_metrics_keep_standard_desktop_size(self):
+        from desktop_settings import desktop_window_metrics
+
+        self.assertEqual(
+            desktop_window_metrics(1920, 1080),
+            ((1120, 760), (760, 550)),
+        )
+
     def test_missing_file_uses_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = load_desktop_settings(Path(directory) / "missing.json")
