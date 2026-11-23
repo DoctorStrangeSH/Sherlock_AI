@@ -2,6 +2,7 @@
 import asyncio
 from getpass import getpass
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -75,6 +76,37 @@ async def request_alternative_code(client, phone, sent):
     return await client(ResendCodeRequest(phone, phone_hash))
 
 
+def print_login_qr(url):
+    """Render the one-time Telegram login URL as a terminal QR without logging it."""
+    import qrcode
+
+    code = qrcode.QRCode(border=2)
+    code.add_data(url)
+    code.make(fit=True)
+    code.print_ascii(out=sys.stdout, tty=False)
+
+
+async def authorize_with_qr(client):
+    """Authorize this local session by scanning from an already logged-in Telegram app."""
+    from telethon.errors import SessionPasswordNeededError
+
+    while True:
+        login = await client.qr_login()
+        print("\\nОткрой Telegram на телефоне: Настройки → Устройства → Подключить устройство.")
+        print("Отсканируй QR-код ниже. Не отправляй его другим людям:")
+        print_login_qr(login.url)
+        try:
+            await login.wait(timeout=120)
+            return
+        except asyncio.TimeoutError:
+            answer = input("QR-код истёк. Создать новый? [д/н]: ").strip().lower()
+            if answer not in {"д", "да", "y", "yes"}:
+                raise RuntimeError("Время действия QR-кода истекло")
+        except SessionPasswordNeededError:
+            await client.sign_in(password=getpass("Пароль двухэтапной защиты (ввод скрыт): "))
+            return
+
+
 def authorization_error_message(exc):
     """Return useful advice without ever including exception text or credentials."""
     kind = type(exc).__name__
@@ -145,41 +177,48 @@ async def authorize():
     client = TelegramClient(StringSession(), api_id, api_hash, **telegram_client_options(network))
     await client.connect()
     try:
-        phone = input("Номер телефона (+...): ").strip()
-        if not phone.startswith("+") or not phone[1:].isdigit():
-            print("Номер должен быть в международном формате, например +7...")
+        method = input("Способ входа: 1 — код Telegram, 2 — QR через уже открытое приложение [2]: ").strip() or "2"
+        if method == "2":
+            await authorize_with_qr(client)
+        elif method == "1":
+            phone = input("Номер телефона (+...): ").strip()
+            if not phone.startswith("+") or not phone[1:].isdigit():
+                print("Номер должен быть в международном формате, например +7...")
+                return 1
+            print("Запрашиваем код у Telegram...")
+            sent = await client.send_code_request(phone)
+            print("Telegram указал способ доставки:", delivery_hint(sent))
+            timeout = delivery_timeout(sent)
+            if timeout is not None:
+                print(f"Время ожидания перед альтернативным способом: {timeout} сек.")
+            next_hint = next_delivery_hint(sent)
+            if next_hint != "Telegram не сообщил альтернативный способ":
+                print("Следующий способ, разрешённый Telegram:", next_hint)
+            print("Проверь служебный чат Telegram (отправитель 777000) на остальных активных устройствах.")
+            if getattr(sent, "next_type", None):
+                answer = input("Если код не пришёл и время ожидания прошло, запросить следующий способ? [д/н]: ").strip().lower()
+                if answer in {"д", "да", "y", "yes"}:
+                    if timeout:
+                        print(f"Ждём {timeout} сек. до разрешённого повторного запроса…")
+                        time.sleep(timeout)
+                    sent = await request_alternative_code(client, phone, sent)
+                    print("Новый способ доставки:", delivery_hint(sent))
+                    timeout = delivery_timeout(sent)
+                    if timeout is not None:
+                        print(f"Время ожидания: {timeout} сек.")
+                else:
+                    print("Альтернативный запрос не выполнялся.")
+            code = getpass("Код из Telegram (ввод скрыт): ").strip()
+            if not code:
+                print("Код не введён, настройка остановлена.")
+                return 1
+            try:
+                await client.sign_in(phone=phone, code=code)
+            except SessionPasswordNeededError:
+                await client.sign_in(password=getpass("Пароль двухфакторной защиты (ввод скрыт): "))
+        else:
+            print("Выбери 1 или 2.")
             return 1
-        print("Запрашиваем код у Telegram...")
-        sent = await client.send_code_request(phone)
-        print("Telegram указал способ доставки:", delivery_hint(sent))
-        timeout = delivery_timeout(sent)
-        if timeout is not None:
-            print(f"Время ожидания перед альтернативным способом: {timeout} сек.")
-        next_hint = next_delivery_hint(sent)
-        if next_hint != "Telegram не сообщил альтернативный способ":
-            print("Следующий способ, разрешённый Telegram:", next_hint)
-        print("Проверь служебный чат Telegram (отправитель 777000) на остальных активных устройствах.")
-        if getattr(sent, "next_type", None):
-            answer = input("Если код не пришёл и время ожидания прошло, запросить следующий способ? [д/н]: ").strip().lower()
-            if answer in {"д", "да", "y", "yes"}:
-                if timeout:
-                    print(f"Ждём {timeout} сек. до разрешённого повторного запроса…")
-                    time.sleep(timeout)
-                sent = await request_alternative_code(client, phone, sent)
-                print("Новый способ доставки:", delivery_hint(sent))
-                timeout = delivery_timeout(sent)
-                if timeout is not None:
-                    print(f"Время ожидания: {timeout} сек.")
-            else:
-                print("Альтернативный запрос не выполнялся.")
-        code = getpass("Код из Telegram (ввод скрыт): ").strip()
-        if not code:
-            print("Код не введён, настройка остановлена.")
-            return 1
-        try:
-            await client.sign_in(phone=phone, code=code)
-        except SessionPasswordNeededError:
-            await client.sign_in(password=getpass("Пароль двухфакторной защиты (ввод скрыт): "))
         me = await client.get_me()
         if me is None or getattr(me, "bot", False):
             print("Не удалось подтвердить личный аккаунт.")
